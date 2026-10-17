@@ -148,6 +148,9 @@ class StorageSystem
 	/**
 	 * 首屏(TitleState)阶段调用: 此时所有资产库已注册完毕, Assets.list() 才完整。
 	 * 全部资源解压到 .NekoEngine (getDirectory)。
+	 *
+	 * 规则: 已存在的目录绝不覆盖(尊重玩家手动放置的 assets/mods),
+	 *       只补齐缺失文件; 全新安装才做完整解压并提示重启。
 	 */
 	public static function checkAndExtract():Void
 	{
@@ -155,27 +158,32 @@ class StorageSystem
 		try
 		{
 			var dataPath:String = getDirectory();
-			if (!FileSystem.exists(dataPath + "assets") || !FileSystem.exists(dataPath + "mods"))
+			var needFullExtract:Bool = false;
+
+			// 资源: 不存在 → 完整解压; 已存在 → 只补缺失(不覆盖玩家改动)
+			if (!FileSystem.exists(dataPath + "assets"))
 			{
-				PopUp.showAlert("Extracting Files", "Extracting assets from application. Please wait.", "OK");
-
+				needFullExtract = true;
 				copyFromAPK("assets/", null, true, dataPath);
-				copyFromAPK("mods/", null, true);
-
-				PopUp.showConfirm("Success!", "Files extracted. The game will now restart.", "Restart", "Cancel", function() {
-					lime.system.System.exit(0);
-				});
 			}
 			else
 			{
-				trace("Running silent integrity check...");
-				var restoredAssets = copyFromAPK("assets/", null, false, dataPath);
-				var restoredContent = copyFromAPK("mods/", null, false);
+				var restored = copyFromAPK("assets/", null, false, dataPath);
+				if (restored > 0) trace('Assets integrity check restored $restored missing files.');
+			}
 
-				if (restoredAssets > 0 || restoredContent > 0)
-				{
-					trace('Integrity Check fixed missing files! Restored: ${restoredAssets + restoredContent} files.');
-				}
+			// mod: 不存在 → 解压内置示例; 已存在 → 完全不动玩家的 mods
+			if (!FileSystem.exists(dataPath + "mods"))
+			{
+				needFullExtract = true;
+				copyFromAPK("mods/", null, true, dataPath);
+			}
+
+			if (needFullExtract)
+			{
+				PopUp.showConfirm("Success!", "Files extracted. The game will now restart.", "Restart", "Cancel", function() {
+					lime.system.System.exit(0);
+				});
 			}
 		}
 		catch (e:Dynamic)
