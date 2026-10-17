@@ -91,7 +91,8 @@ class BaseOptionsMenu extends MusicBeatSubstate
 		{
 			var optionText:OptionNameText = new OptionNameText(290, 260, optionsArray[i].name);
 			optionText.isMenuItem = true;
-			var card:FlxSprite = new FlxSprite(40, optionText.y - 12).loadGraphic(MD3Rounded.get(FlxG.width - 80, 78, 18));
+			var card:FlxSprite = new FlxSprite(40, optionText.y - 12);
+			card.pixels = MD3Rounded.createBitmap(FlxG.width - 80, 78, 18);
 			card.color = MD3Theme.surfaceContainer;
 			grpCards.add(card);
 			optionCards.push(card);
