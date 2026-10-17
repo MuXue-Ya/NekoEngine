@@ -12,7 +12,7 @@ class VisualsUISubState extends BaseOptionsMenu
 	var noteY:Float = 90;
 	public function new()
 	{
-		title = 'Visuals and UI';
+		title = '视觉效果';
 		rpcTitle = 'Visuals & UI Settings Menu'; //for Discord Rich Presence
 
 		// for note skins
