@@ -250,7 +250,7 @@ class Main extends Sprite
 		#if MODS_ALLOWED
 		try {
 			var enabledMods:Array<String> = [];
-			for (m in Mods.getEnabledMods()) enabledMods.push(m.title);
+			for (m in Mods.parseList().enabled) enabledMods.push(m);
 			if (enabledMods.length > 0)
 				errMsg += "已启用Mod / Enabled Mods: " + enabledMods.join(', ') + "\n";
 		} catch (modE:Dynamic) {}
