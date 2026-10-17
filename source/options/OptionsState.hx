@@ -384,8 +384,9 @@ class OptionsState extends MusicBeatState
 
 		grpOptions.clear();
 		grpCards.clear();
-		checkboxGroup.clear();
-		grpTexts.clear();
+		switches = [];
+		sliders = [];
+		valueTexts = [];
 		optionCards = [];
 		rightTitle.text = cat;
 
@@ -487,7 +488,8 @@ class OptionsState extends MusicBeatState
 			item.targetY = i - scrollOffset;
 			item.alpha = (i == curSelected) ? 1 : 0.6;
 		}
-		for (text in grpTexts) text.alpha = (text.ID == curSelected) ? 1 : 0.55;
+		for (i in 0...valueTexts.length)
+			if (valueTexts[i] != null) valueTexts[i].alpha = (i == curSelected) ? 1 : 0.55;
 	}
 
 	function acceptOption():Void
