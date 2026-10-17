@@ -110,81 +110,77 @@ class StorageSystem
 		#if mobile
 		try
 		{
-			var paths = [getAssetsDirectory(), getDirectory()];
-			
+			var path:String = getDirectory();
+
 			// 等待用户授权后再创建文件夹(最多12秒)
 			var ready:Bool = false;
 			for (i in 0...12)
 			{
-				if (!FileSystem.exists(paths[0])) FileSystem.createDirectory(paths[0]);
-				if (!FileSystem.exists(paths[1])) FileSystem.createDirectory(paths[1]);
-				if (FileSystem.exists(paths[0]) && FileSystem.exists(paths[1]))
+				if (!FileSystem.exists(path)) FileSystem.createDirectory(path);
+				if (FileSystem.exists(path))
 				{
 					ready = true;
 					break;
 				}
 				Sys.sleep(1);
 			}
-			
+
 			if (!ready)
 			{
 				PopUp.showAlert("Storage Permission", "Please grant storage permission, then restart the game.", "OK");
 				return true;
 			}
-			
+
 			#if android
 			// Creating .nomedia files to avoid images remaining in the gallery
-			if (!FileSystem.exists(paths[0] + ".nomedia")) File.saveContent(paths[0] + ".nomedia", paths[0]);
+			if (!FileSystem.exists(path + ".nomedia")) File.saveContent(path + ".nomedia", path);
 			#end
-			
-			if (!FileSystem.exists(paths[0] + "assets") || !FileSystem.exists(paths[1] + "mods"))
-			{
-				startApkCopy();
-				return true;
-			}
-			else
-			{
-				trace("Running silent integrity check...");
-				var restoredAssets = copyFromAPK("assets/", null, false, getAssetsDirectory());
-				var restoredContent = copyFromAPK("mods/", null, false);
-				
-				if (restoredAssets > 0 || restoredContent > 0)
-				{
-					trace('Integrity Check fixed missing files! Restored: ${restoredAssets + restoredContent} files.');
-				}
-				
-				return false;
-			}
 		}
 		catch (e:Dynamic)
 		{
 			trace("Storage Error: " + e);
 		}
 		#end
-		
+
 		return false; // If not Mobile, or no interruption needed, proceed.
 	}
-	
+
 	/**
-	 * Initiates the internal APK asset extraction with UI alerts (Full Installation).
+	 * 首屏(TitleState)阶段调用: 此时所有资产库已注册完毕, Assets.list() 才完整。
+	 * 全部资源解压到 .NekoEngine (getDirectory)。
 	 */
-	private static function startApkCopy():Void
+	public static function checkAndExtract():Void
 	{
 		#if mobile
-		PopUp.showAlert("Extracting Files", "Extracting assets from application. Please wait.", "OK");
-		
 		try
 		{
-			copyFromAPK("assets/", null, true, getAssetsDirectory());
-			copyFromAPK("mods/", null, true);
-			
-			PopUp.showConfirm("Success!", "Files extracted. The game will now restart.", "Restart", "Cancel", function() {
-				lime.system.System.exit(0);
-			});
+			var dataPath:String = getDirectory();
+			if (!FileSystem.exists(dataPath + "assets") || !FileSystem.exists(dataPath + "mods"))
+			{
+				PopUp.showAlert("Extracting Files", "Extracting assets from application. Please wait.", "OK");
+
+				copyFromAPK("assets/", null, true, dataPath);
+				copyFromAPK("mods/", null, true);
+
+				PopUp.showConfirm("Success!", "Files extracted. The game will now restart.", "Restart", "Cancel", function() {
+					lime.system.System.exit(0);
+				});
+			}
+			else
+			{
+				trace("Running silent integrity check...");
+				var restoredAssets = copyFromAPK("assets/", null, false, dataPath);
+				var restoredContent = copyFromAPK("mods/", null, false);
+
+				if (restoredAssets > 0 || restoredContent > 0)
+				{
+					trace('Integrity Check fixed missing files! Restored: ${restoredAssets + restoredContent} files.');
+				}
+			}
 		}
 		catch (e:Dynamic)
 		{
-			trace("Error during Full Extraction: " + e);
+			trace("Storage Error: " + e);
 		}
 		#end
 	}
