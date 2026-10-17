@@ -35,8 +35,8 @@ class VisualsUISubState extends BaseOptionsMenu
 				ClientPrefs.data.noteSkin = ClientPrefs.defaultData.noteSkin; //Reset to default if saved noteskin couldnt be found
 
 			noteSkins.insert(0, ClientPrefs.defaultData.noteSkin); //Default skin always comes first
-			var option:Option = new Option('Note Skins:',
-				"Select your prefered Note skin.",
+			var option:Option = new Option('音符皮肤:',
+				"选择你喜欢的音符皮肤。",
 				'noteSkin',
 				'string',
 				noteSkins);
@@ -52,16 +52,16 @@ class VisualsUISubState extends BaseOptionsMenu
 				ClientPrefs.data.splashSkin = ClientPrefs.defaultData.splashSkin; //Reset to default if saved splashskin couldnt be found
 
 			noteSplashes.insert(0, ClientPrefs.defaultData.splashSkin); //Default skin always comes first
-			var option:Option = new Option('Note Splashes:',
-				"Select your prefered Note Splash variation or turn it off.",
+			var option:Option = new Option('音符特效:',
+				"选择音符特效样式，或直接关闭。",
 				'splashSkin',
 				'string',
 				noteSplashes);
 			addOption(option);
 		}
 
-		var option:Option = new Option('Note Splash Opacity',
-			'How much transparent should the Note Splashes be.',
+		var option:Option = new Option('音符特效透明度',
+			'音符特效的透明程度。',
 			'splashAlpha',
 			'percent');
 		option.scrollSpeed = 1.6;
@@ -71,39 +71,39 @@ class VisualsUISubState extends BaseOptionsMenu
 		option.decimals = 1;
 		addOption(option);
 
-		var option:Option = new Option('Hide HUD',
-			'If checked, hides most HUD elements.',
+		var option:Option = new Option('隐藏HUD',
+			'开启后隐藏大部分游戏界面元素。',
 			'hideHud',
 			'bool');
 		addOption(option);
 		
-		var option:Option = new Option('Time Bar:',
-			"What should the Time Bar display?",
+		var option:Option = new Option('时间条:',
+			"时间条要显示什么内容？",
 			'timeBarType',
 			'string',
 			['Time Left', 'Time Elapsed', 'Song Name', 'Disabled']);
 		addOption(option);
 
-		var option:Option = new Option('Flashing Lights',
-			"Uncheck this if you're sensitive to flashing lights!",
+		var option:Option = new Option('闪光效果',
+			"如果你对闪光敏感，请关闭此项！",
 			'flashing',
 			'bool');
 		addOption(option);
 
-		var option:Option = new Option('Camera Zooms',
-			"If unchecked, the camera won't zoom in on a beat hit.",
+		var option:Option = new Option('镜头缩放',
+			"关闭后，镜头不再随节拍缩放。",
 			'camZooms',
 			'bool');
 		addOption(option);
 
-		var option:Option = new Option('Score Text Zoom on Hit',
-			"If unchecked, disables the Score text zooming\neverytime you hit a note.",
+		var option:Option = new Option('得分文字缩放',
+			"关闭后，每次击中音符时\n得分文字不再缩放。",
 			'scoreZoom',
 			'bool');
 		addOption(option);
 
-		var option:Option = new Option('Health Bar Opacity',
-			'How much transparent should the health bar and icons be.',
+		var option:Option = new Option('血条透明度',
+			'血条与头像图标的透明程度。',
 			'healthBarAlpha',
 			'percent');
 		option.scrollSpeed = 1.6;
@@ -114,16 +114,16 @@ class VisualsUISubState extends BaseOptionsMenu
 		addOption(option);
 		
 		#if !mobile
-		var option:Option = new Option('FPS Counter',
-			'If unchecked, hides FPS Counter.',
+		var option:Option = new Option('FPS 显示器',
+			'关闭后隐藏FPS显示器。',
 			'showFPS',
 			'bool');
 		addOption(option);
 		option.onChange = onChangeFPSCounter;
 		#end
 		
-		var option:Option = new Option('Pause Screen Song:',
-			"What song do you prefer for the Pause Screen?",
+		var option:Option = new Option('暂停界面音乐:',
+			"暂停界面播放哪首音乐？",
 			'pauseMusic',
 			'string',
 			['None', 'Breakfast', 'Tea Time']);
@@ -131,23 +131,23 @@ class VisualsUISubState extends BaseOptionsMenu
 		option.onChange = onChangePauseMusic;
 		
 		#if CHECK_FOR_UPDATES
-		var option:Option = new Option('Check for Updates',
-			'On Release builds, turn this on to check for updates when you start the game.',
+		var option:Option = new Option('检查更新',
+			'正式版游戏中，开启后启动时会检查更新。',
 			'checkForUpdates',
 			'bool');
 		addOption(option);
 		#end
 
 		#if DISCORD_ALLOWED
-		var option:Option = new Option('Discord Rich Presence',
-			"Uncheck this to prevent accidental leaks, it will hide the Application from your \"Playing\" box on Discord",
+		var option:Option = new Option('Discord 状态展示',
+			"关闭后不在Discord展示游戏状态，\n防止意外泄露隐私。",
 			'discordRPC',
 			'bool');
 		addOption(option);
 		#end
 
-		var option:Option = new Option('Combo Stacking',
-			"If unchecked, Ratings and Combo won't stack, saving on System Memory and making them easier to read",
+		var option:Option = new Option('连击叠加',
+			"关闭后评价与连击数字不再叠加，\n节省内存且更易读。",
 			'comboStacking',
 			'bool');
 		addOption(option);
