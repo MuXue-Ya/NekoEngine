@@ -32,7 +32,7 @@ class StorageSystem
 	
 	private static function get_folderName():String
 	{
-		return Application.current.meta.get('file');
+		return 'NekoEngine';
 	}
 	
 	private static var packageName(get, never):String;
