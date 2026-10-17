@@ -979,7 +979,7 @@ class EditorPlayState extends MusicBeatSubstate
 			var percent:Float = CoolUtil.floorDecimal(ratingPercent * 100, 2);
 			str = '$percent% - $ratingFC';
 		}
-		scoreTxt.text = 'Hits: $songHits | Misses: $songMisses | Rating: $str';
+		scoreTxt.text = '命中: $songHits | 失误: $songMisses | 评价: $str';
 	}
 	
 	function fullComboUpdate()
