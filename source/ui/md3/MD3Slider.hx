@@ -22,24 +22,20 @@ class MD3Slider extends FlxSpriteGroup
 	var knob:FlxSprite;
 	var trackW:Float;
 	var dragTrackedId:Int = -1;
-	static var trackG:flixel.graphics.FlxGraphic = null;
-	static var knobG:flixel.graphics.FlxGraphic = null;
 
 	public function new(x:Float, y:Float, w:Float, minV:Float, maxV:Float, step:Float, decimals:Int, initial:Float)
 	{
 		super(x, y);
 		this.trackW = w;
 		this.minV = minV; this.maxV = maxV; this.step = step; this.decimals = decimals;
-		if (trackG == null || trackG.width != Math.round(w)) trackG = MD3Rounded.get(Math.round(w), 10, 5);
-		if (knobG == null) knobG = MD3Rounded.get(24, 24, 12);
 		var track = new FlxSprite(0, 0);
-		track.loadGraphic(trackG);
+		track.pixels = MD3Rounded.createBitmap(Math.round(w), 10, 5);
 		track.color = MD3Theme.outline;
 		fill = new FlxSprite(0, 0);
-		fill.loadGraphic(trackG);
+		fill.pixels = MD3Rounded.createBitmap(Math.round(w), 10, 5);
 		fill.color = MD3Theme.primary;
 		knob = new FlxSprite(0, 0);
-		knob.loadGraphic(knobG);
+		knob.pixels = MD3Rounded.createBitmap(24, 24, 12);
 		knob.color = MD3Theme.primary;
 		add(track); add(fill); add(knob);
 		value = initial;
@@ -60,7 +56,7 @@ class MD3Slider extends FlxSpriteGroup
 		var frac:Float = (maxV > minV) ? (value - minV) / (maxV - minV) : 0;
 		if (frac < 0) frac = 0;
 		if (frac > 1) frac = 1;
-		fill.clipRect = new openfl.geom.Rectangle(0, 0, trackW * frac, 10);
+		fill.clipRect = flixel.math.FlxRect.get(0, 0, trackW * frac, 10);
 		knob.x = trackW * frac - 12;
 		knob.y = 5 - 12;
 	}
