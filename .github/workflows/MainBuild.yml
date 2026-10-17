@@ -22,7 +22,7 @@ jobs:
       - name: Cache haxelib dependencies
         uses: actions/cache@v4
         with:
-          path: ~/haxelib
+          path: /opt/hostedtoolcache/haxe/${{ env.HAXE_VER }}/x64/lib
           key: haxelib-${{ runner.os }}-${{ hashFiles('hmm.json') }}
           restore-keys: |
             haxelib-${{ runner.os }}-
