@@ -30,12 +30,12 @@ class TouchMenuUtil
 		{
 			if (touch.justPressed && trackedId == -1)
 			{
-				trackedId = touch.touchPointId;
+				trackedId = touch.touchPointID;
 				startY = touch.y;
 				lastStepY = touch.y;
 				moved = false;
 			}
-			else if (touch.touchPointId == trackedId)
+			else if (touch.touchPointID == trackedId)
 			{
 				if (touch.pressed)
 				{
@@ -66,7 +66,7 @@ class TouchMenuUtil
 		{
 			var still:Bool = false;
 			for (t in FlxG.touches.list)
-				if (t.touchPointId == trackedId && (t.pressed || t.justPressed)) { still = true; break; }
+				if (t.touchPointID == trackedId && (t.pressed || t.justPressed)) { still = true; break; }
 			if (!still) trackedId = -1;
 		}
 		#end
