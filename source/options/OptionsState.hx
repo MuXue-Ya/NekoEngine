@@ -83,16 +83,7 @@ class OptionsState extends MusicBeatState
 		#end
 	}
 
-	var touchAcceptFlag:Bool = false;
-
 	override function update(elapsed:Float) {
-		#if mobile
-		mobile.backend.utils.TouchMenuUtil.update(grpOptions.members, curSelected,
-			function(d:Int) changeSelection(d),
-			function(i:Int) changeSelection(i - curSelected),
-			function() { touchAcceptFlag = true; }
-		);
-		#end
 		super.update(elapsed);
 
 		if (controls.UI_UP_P) {
@@ -112,7 +103,7 @@ class OptionsState extends MusicBeatState
 			}
 			else MusicBeatState.switchState(new MainMenuState());
 		}
-		else if (controls.ACCEPT || touchAcceptFlag) { touchAcceptFlag = false; openSelectedSubstate(options[curSelected]); }
+		else if (controls.ACCEPT) openSelectedSubstate(options[curSelected]);
 	}
 	
 	function changeSelection(change:Int = 0) {
