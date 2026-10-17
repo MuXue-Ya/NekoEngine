@@ -64,7 +64,22 @@ class MobileVirtualPad extends TouchInputManager
 	 */
 	public function getButton(name:String):TouchButton
 	{
-		return buttonMap.get(name);
+		var btn = buttonMap.get(name);
+		if (btn == null) btn = getDummyButton();
+		return btn;
+	}
+
+	// 空对象替身: 布局中不存在的按钮返回它(永不按下/不可见), 防止调用方空引用崩溃
+	static var dummyButton:TouchButton = null;
+	static function getDummyButton():TouchButton
+	{
+		if (dummyButton == null)
+		{
+			dummyButton = new TouchButton();
+			dummyButton.active = false;
+			dummyButton.visible = false;
+		}
+		return dummyButton;
 	}
 
 	private function loadLayout(folder:String, layoutName:String):Void
