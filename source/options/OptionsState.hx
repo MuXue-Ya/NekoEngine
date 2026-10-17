@@ -7,8 +7,8 @@ import flixel.math.FlxMath;
 import flixel.text.FlxText;
 import flixel.util.FlxColor;
 import states.MainMenuState;
-import objects.CheckboxThingie;
-import objects.AttachedText;
+import ui.md3.MD3Switch;
+import ui.md3.MD3Slider;
 import ui.md3.MD3Theme;
 import ui.md3.MD3Rounded;
 import mobile.backend.utils.TouchMenuUtil;
@@ -52,8 +52,9 @@ class OptionsState extends MusicBeatState
 	var grpOptions:FlxTypedGroup<OptionNameText>;
 	var grpCards:FlxTypedGroup<FlxSprite>;
 	var optionCards:Array<FlxSprite> = [];
-	var checkboxGroup:FlxTypedGroup<CheckboxThingie>;
-	var grpTexts:FlxTypedGroup<AttachedText>;
+	var switches:Array<MD3Switch> = [];
+	var sliders:Array<MD3Slider> = [];
+	var valueTexts:Array<FlxText> = [];
 	var rightTitle:FlxText;
 	var descText:FlxText;
 	var descBox:FlxSprite;
@@ -121,10 +122,6 @@ class OptionsState extends MusicBeatState
 		add(grpCards);
 		grpOptions = new FlxTypedGroup<OptionNameText>();
 		add(grpOptions);
-		grpTexts = new FlxTypedGroup<AttachedText>();
-		add(grpTexts);
-		checkboxGroup = new FlxTypedGroup<CheckboxThingie>();
-		add(checkboxGroup);
 
 		// 说明框(右面板底部)
 		descBox = new FlxSprite().makeGraphic(1, 1, MD3Theme.surfaceContainerHigh);
@@ -408,26 +405,44 @@ class OptionsState extends MusicBeatState
 			grpCards.add(card);
 			optionCards.push(card);
 
+			var widgetRight:Float = rightX + (FlxG.width - rightX - 36) - 96;
 			if(opt.type == 'bool')
 			{
-				var checkbox:CheckboxThingie = new CheckboxThingie(optionText.x - 60, optionText.y, Std.string(opt.getValue()) == 'true');
-				checkbox.sprTracker = optionText;
-				checkbox.ID = i;
-				checkboxGroup.add(checkbox);
+				var sw:MD3Switch = new MD3Switch(widgetRight - 64, 0, opt.getValue() == true, function(v:Bool) {
+					opt.setValue(v);
+					opt.change();
+					updateTextFrom(opt);
+					ClientPrefs.saveSettings();
+				});
+				switches.push(sw);
+				add(sw);
+			}
+			else if(opt.type == 'int' || opt.type == 'float' || opt.type == 'percent')
+			{
+				var sl:MD3Slider = new MD3Slider(widgetRight - 430, 0, 280, opt.minValue, opt.maxValue, opt.changeValue, opt.decimals, opt.getValue());
+				sl.onChange = function() {
+					opt.setValue(sl.value);
+					opt.change();
+					updateTextFrom(opt);
+					ClientPrefs.saveSettings();
+				};
+				sliders.push(sl);
+				add(sl);
+				var vTxt = new FlxText(widgetRight - 130, 0, 110, "", 18);
+				vTxt.setFormat(Paths.font("vcr.ttf"), 18, MD3Theme.onSurfaceVariant, flixel.text.FlxTextAlign.RIGHT);
+				valueTexts.push(vTxt);
+				add(vTxt);
 			}
 			else
 			{
-				var valueText:AttachedText = new AttachedText('' + opt.getValue(), optionText.width + 40);
-				valueText.sprTracker = optionText;
-				valueText.copyAlpha = true;
-				valueText.ID = i;
-				grpTexts.add(valueText);
-				opt.child = valueText;
+				var vTxt = new FlxText(widgetRight - 220, 0, 210, "", 18);
+				vTxt.setFormat(Paths.font("vcr.ttf"), 18, MD3Theme.onSurfaceVariant, flixel.text.FlxTextAlign.RIGHT);
+				valueTexts.push(vTxt);
+				add(vTxt);
 			}
 			updateTextFrom(opt);
 		}
 		changeSelection();
-		reloadCheckboxes();
 	}
 
 	function updateTextFrom(option:Option):Void
@@ -440,12 +455,6 @@ class OptionsState extends MusicBeatState
 		option.text = text.replace('%v', val).replace('%d', def);
 	}
 
-	function reloadCheckboxes():Void
-	{
-		for (checkbox in checkboxGroup)
-			if(checkbox != null)
-				checkbox.daValue = Std.string(optionsArray[checkbox.ID].getValue()) == 'true';
-	}
 
 	// ==================== 选择与确认 ====================
 
@@ -484,18 +493,14 @@ class OptionsState extends MusicBeatState
 	function acceptOption():Void
 	{
 		var curOpt = curOption;
-		if (curOpt == null) return;
-		if (nextAccept > 0) return;
+		if (curOpt == null || nextAccept > 0) return;
 
 		if (curOpt.type == 'bool')
 		{
-			FlxG.sound.play(Paths.sound('scrollMenu'));
-			curOpt.setValue((curOpt.getValue() == true) ? false : true);
-			curOpt.change();
-			reloadCheckboxes();
+			if (switches[curSelected] != null) switches[curSelected].toggle();
 			nextAccept = 5;
 		}
-		else if (curOpt.type == 'string' || curOpt.type == 'int' || curOpt.type == 'float' || curOpt.type == 'percent')
+		else if (curOpt.type == 'string')
 		{
 			stepValue(1);
 		}
@@ -547,7 +552,6 @@ class OptionsState extends MusicBeatState
 		}
 		leOption.change();
 		FlxG.sound.play(Paths.sound('cancelMenu'));
-		reloadCheckboxes();
 		nextAccept = 5;
 	}
 
@@ -579,8 +583,36 @@ class OptionsState extends MusicBeatState
 				optionCards[i].alpha = (i == curSelected) ? 1 : 0.65;
 			}
 		}
-		for (cb in checkboxGroup) if (cb != null) cb.visible = cb.sprTracker != null && cb.sprTracker.visible;
-		for (vt in grpTexts) if (vt != null) vt.visible = vt.sprTracker != null && vt.sprTracker.visible;
+		// 自绘控件跟随行 + 值同步
+		var widgetRight:Float = rightX + (FlxG.width - rightX - 36) - 96;
+		for (i in 0...optionCards.length)
+		{
+			var row = grpOptions.members[i];
+			if (row == null || optionsArray[i] == null) continue;
+			var opt:Option = optionsArray[i];
+			if (switches[i] != null)
+			{
+				switches[i].x = widgetRight - 64;
+				switches[i].y = row.y + 8;
+				switches[i].visible = row.visible;
+				switches[i].on = (opt.getValue() == true);
+			}
+			if (sliders[i] != null)
+			{
+				sliders[i].x = widgetRight - 430;
+				sliders[i].y = row.y + 18;
+				sliders[i].visible = row.visible;
+				if (!sliders[i].dragging) sliders[i].setValue(opt.getValue());
+			}
+			if (valueTexts[i] != null)
+			{
+				valueTexts[i].x = widgetRight - 200;
+				valueTexts[i].y = row.y + 14;
+				valueTexts[i].visible = row.visible;
+				valueTexts[i].text = opt.text;
+				valueTexts[i].alpha = (i == curSelected) ? 1 : 0.6;
+			}
+		}
 
 		// 左侧分类文字位置与高亮
 		for (i in 0...catTexts.members.length)
@@ -593,10 +625,16 @@ class OptionsState extends MusicBeatState
 
 		// ===== 触控 =====
 		#if mobile
-		TouchMenuUtil.update(grpOptions.members, curSelected,
+		TouchMenuUtil.update(optionCards, curSelected,
 			function(d:Int) changeSelection(d),
 			function(i:Int) { if (nextAccept <= 0) changeSelection(i - curSelected); },
-			function() { if (nextAccept <= 0) touchAcceptFlag = true; }
+			function() {
+				if (nextAccept > 0) return;
+				var opt = optionsArray[curSelected];
+				if (opt != null && (opt.type == 'int' || opt.type == 'float' || opt.type == 'percent'))
+					return; // 滑动条直接拖
+				touchAcceptFlag = true;
+			}
 		);
 		handleCategoryTouch();
 		#end
