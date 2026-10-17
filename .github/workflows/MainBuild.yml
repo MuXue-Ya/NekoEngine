@@ -19,6 +19,14 @@ jobs:
         with:
           haxe-version: ${{ env.HAXE_VER }}
 
+      - name: Cache haxelib dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/haxelib
+          key: haxelib-${{ runner.os }}-${{ hashFiles('hmm.json') }}
+          restore-keys: |
+            haxelib-${{ runner.os }}-
+
       - name: Install Libraries
         run: |
           haxelib install hmm --quiet
