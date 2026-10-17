@@ -197,12 +197,10 @@ class Main extends Sprite
 		{
 			switch (stackItem)
 			{
-				case FilePos(s, file, line, column):
+				case FilePos(si, file, line, column):
 					var prefix:String = '';
-					if (s != null && s.match(Method(c, m)))
-						prefix = c + "." + m + " / ";
-					else if (s != null && s.match(LocalFunction))
-						prefix = "local function / ";
+					if (si != null)
+						prefix = Std.string(si) + " / ";
 					var lineStr:String = "  at " + prefix + file + " (line " + line + ")";
 					var lineStr:String = "  at " + prefix + file + " (line " + line + ")";
 					stackStr += lineStr + "\n";
