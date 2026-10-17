@@ -193,8 +193,17 @@ class StoryMenuState extends MusicBeatState
 		#end
 	}
 
+	var touchAcceptFlag:Bool = false;
+
 	override function update(elapsed:Float)
 	{
+		#if mobile
+		mobile.backend.utils.TouchMenuUtil.update(grpWeekText.members, curWeek,
+			function(d:Int) changeWeek(d),
+			function(i:Int) changeWeek(i - curWeek),
+			function() { touchAcceptFlag = true; }
+		);
+		#end
 		// scoreText.setFormat('VCR OSD Mono', 32);
 		lerpScore = Math.floor(FlxMath.lerp(intendedScore, lerpScore, Math.exp(-elapsed * 30)));
 		if(Math.abs(intendedScore - lerpScore) < 10) lerpScore = intendedScore;
@@ -255,8 +264,9 @@ class StoryMenuState extends MusicBeatState
 				openSubState(new ResetScoreSubState('', curDifficulty, '', curWeek));
 				//FlxG.sound.play(Paths.sound('scrollMenu'));
 			}
-			else if (controls.ACCEPT)
+			else if (controls.ACCEPT || touchAcceptFlag)
 			{
+				touchAcceptFlag = false;
 				selectWeek();
 			}
 		}
