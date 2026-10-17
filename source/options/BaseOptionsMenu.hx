@@ -120,8 +120,6 @@ class BaseOptionsMenu extends MusicBeatSubstate
 	var holdValue:Float = 0;
 
 	var bindingKey:Bool = false;
-	var touchAcceptFlag:Bool = false;
-	var touchValueFlag:Int = 0;
 	var holdingEsc:Float = 0;
 	var bindingBlack:FlxSprite;
 	var bindingText:Alphabet;
@@ -129,21 +127,6 @@ class BaseOptionsMenu extends MusicBeatSubstate
 	override function update(elapsed:Float)
 	{
 		super.update(elapsed);
-
-		#if mobile
-		mobile.backend.utils.TouchMenuUtil.update(grpOptions.members, curSelected,
-			function(d:Int) changeSelection(d),
-			function(i:Int) { if (!bindingKey && nextAccept <= 0) changeSelection(i - curSelected); },
-			function() {
-				if (bindingKey || nextAccept > 0) return;
-				var opt = optionsArray[curSelected];
-				if (opt != null && (opt.type == 'int' || opt.type == 'float' || opt.type == 'percent' || opt.type == 'string'))
-					touchValueFlag = 1;
-				else
-					touchAcceptFlag = true;
-			}
-		);
-		#end
 
 		if(bindingKey)
 		{
@@ -169,9 +152,8 @@ class BaseOptionsMenu extends MusicBeatSubstate
 		{
 			if(curOption.type == 'bool')
 			{
-				if(controls.ACCEPT || touchAcceptFlag)
+				if(controls.ACCEPT)
 				{
-					touchAcceptFlag = false;
 					FlxG.sound.play(Paths.sound('scrollMenu'));
 					curOption.setValue((curOption.getValue() == true) ? false : true);
 					curOption.change();
@@ -182,9 +164,8 @@ class BaseOptionsMenu extends MusicBeatSubstate
 			{
 				if(curOption.type == 'keybind')
 				{
-					if(controls.ACCEPT || touchAcceptFlag)
+					if(controls.ACCEPT)
 					{
-						touchAcceptFlag = false;
 						bindingBlack = new FlxSprite().makeGraphic(1, 1, FlxColor.WHITE);
 						bindingBlack.scale.set(FlxG.width, FlxG.height);
 						bindingBlack.updateHitbox();
@@ -206,18 +187,16 @@ class BaseOptionsMenu extends MusicBeatSubstate
 						FlxG.sound.play(Paths.sound('scrollMenu'));
 					}
 				}
-				else if(controls.UI_LEFT || controls.UI_RIGHT || touchValueFlag != 0)
+				else if(controls.UI_LEFT || controls.UI_RIGHT)
 				{
-					var touchDir:Int = touchValueFlag;
-					if (touchDir != 0) { touchValueFlag = 0; holdTime = 0; }
-					var pressed = (controls.UI_LEFT_P || controls.UI_RIGHT_P || touchDir != 0);
+					var pressed = (controls.UI_LEFT_P || controls.UI_RIGHT_P);
 					if(holdTime > 0.5 || pressed)
 					{
 						if(pressed)
 						{
 							var add:Dynamic = null;
 							if(curOption.type != 'string')
-								add = (touchDir != 0) ? (touchDir * curOption.changeValue) : (controls.UI_LEFT ? -curOption.changeValue : curOption.changeValue);
+								add = controls.UI_LEFT ? -curOption.changeValue : curOption.changeValue;
 
 							switch(curOption.type)
 							{
@@ -239,7 +218,7 @@ class BaseOptionsMenu extends MusicBeatSubstate
 
 								case 'string':
 									var num:Int = curOption.curOption; //lol
-									if(touchDir < 0 || controls.UI_LEFT_P) --num;
+									if(controls.UI_LEFT_P) --num;
 									else num++;
 
 									if(num < 0)
