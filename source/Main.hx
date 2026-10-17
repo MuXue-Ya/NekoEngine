@@ -199,12 +199,11 @@ class Main extends Sprite
 			{
 				case FilePos(s, file, line, column):
 					var prefix:String = '';
-					if (s != null) switch (s)
-					{
-						case Method(cls, method): prefix = cls + "." + method + " / ";
-						case LocalFunction: prefix = "local function / ";
-						default:
-					}
+					if (s != null && s.match(Method(c, m)))
+						prefix = c + "." + m + " / ";
+					else if (s != null && s.match(LocalFunction))
+						prefix = "local function / ";
+					var lineStr:String = "  at " + prefix + file + " (line " + line + ")";
 					var lineStr:String = "  at " + prefix + file + " (line " + line + ")";
 					stackStr += lineStr + "\n";
 					if (firstStack == '') firstStack = prefix + file + " (line " + line + ")";
@@ -223,7 +222,8 @@ class Main extends Sprite
 		var devAndroid:String = '';
 		try {
 			var inp = sys.io.File.read("/system/build.prop", false);
-			for (line in inp)
+			var line:String = "";
+			while (true)
 			{
 				if (devModel == '' && StringTools.startsWith(line, "ro.product.model="))
 					devModel = line.substr("ro.product.model=".length).trim();
@@ -239,8 +239,8 @@ class Main extends Sprite
 
 		try {
 			errMsg += "当前界面 / Current State: " + Type.getClassName(Type.getClass(FlxG.state)) + "\n";
-			if (FlxG.state.substate != null)
-				errMsg += "子界面 / Substate: " + Type.getClassName(Type.getClass(FlxG.state.substate)) + "\n";
+			if (FlxG.state.subState != null)
+				errMsg += "子界面 / Substate: " + Type.getClassName(Type.getClass(FlxG.state.subState)) + "\n";
 		} catch (stE:Dynamic) {}
 		try {
 			if (Main.fpsVar != null)
