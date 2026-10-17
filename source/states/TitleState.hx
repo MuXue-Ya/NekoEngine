@@ -70,6 +70,9 @@ class TitleState extends MusicBeatState
 
 	override public function create():Void
 	{
+		#if mobile
+		StorageSystem.checkAndExtract(); // 资产库全部就绪后再解压, 保证文件完整
+		#end
 		Paths.clearStoredMemory();
 
 		#if LUA_ALLOWED
