@@ -55,34 +55,42 @@ class FPSCounter extends Sprite
 
 		var fmt = new TextFormat("_sans", 12, color);
 
-		// 引擎名+版本
-		verText = mkText(fmt);
-		verText.text = 'NekoEngine v0.01';
-		addChild(verText);
+		// ===== 固定布局(不依赖文本实时高度, 防止曲线盖住文字) =====
+		var lineH:Float = 18;
+		var yVer:Float = 0;
+		var yFps:Float = yVer + lineH + GAP;
+		var yFpsG:Float = yFps + lineH + GAP;
+		var yMem:Float = yFpsG + GRAPH_H + GAP;
+		var yMemG:Float = yMem + lineH + GAP;
 
-		// 帧数
-		fpsText = mkText(fmt);
-		fpsText.y = verText.y + verText.height + GAP;
-		addChild(fpsText);
-
-		// 帧数曲线
+		// 曲线先加(垫底层)
 		fpsBD = new BitmapData(GRAPH_W, GRAPH_H, true, 0x00000000);
-		var fpsGraph = new Bitmap(fpsBD);
+		var fpsGraph:Bitmap = new Bitmap(fpsBD);
 		fpsGraph.x = 0;
-		fpsGraph.y = fpsText.y + fpsText.height + GAP;
+		fpsGraph.y = yFpsG;
 		addChild(fpsGraph);
 
-		// 内存
-		memText = mkText(fmt);
-		memText.y = fpsGraph.y + GRAPH_H + GAP;
-		addChild(memText);
-
-		// 内存曲线
 		memBD = new BitmapData(GRAPH_W, GRAPH_H, true, 0x00000000);
-		var memGraph = new Bitmap(memBD);
+		var memGraph:Bitmap = new Bitmap(memBD);
 		memGraph.x = 0;
-		memGraph.y = memText.y + memText.height + GAP;
+		memGraph.y = yMemG;
 		addChild(memGraph);
+
+		// 文字后加(上层, 不会被曲线遮挡)
+		verText = mkText(fmt);
+		verText.text = 'NekoEngine v0.01';
+		verText.y = yVer;
+		addChild(verText);
+
+		fpsText = mkText(fmt);
+		fpsText.text = 'FPS: 0';
+		fpsText.y = yFps;
+		addChild(fpsText);
+
+		memText = mkText(fmt);
+		memText.text = 'Memory: 0 MB';
+		memText.y = yMem;
+		addChild(memText);
 
 		#if mobile
 		setScale();
