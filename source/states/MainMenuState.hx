@@ -119,17 +119,8 @@ class MainMenuState extends MusicBeatState
 
 	var selectedSomethin:Bool = false;
 
-	var touchAcceptFlag:Bool = false;
-
 	override function update(elapsed:Float)
 	{
-		#if mobile
-		mobile.backend.utils.TouchMenuUtil.update(menuItems.members, curSelected,
-			function(d:Int) changeItem(d),
-			function(i:Int) changeItem(i - curSelected),
-			function() { if (!selectedSomethin) touchAcceptFlag = true; }
-		);
-		#end
 		if (FlxG.sound.music.volume < 0.8)
 		{
 			FlxG.sound.music.volume += 0.5 * elapsed;
@@ -152,9 +143,8 @@ class MainMenuState extends MusicBeatState
 				MusicBeatState.switchState(new TitleState());
 			}
 
-			if (controls.ACCEPT || touchAcceptFlag)
+			if (controls.ACCEPT)
 			{
-				touchAcceptFlag = false;
 				FlxG.sound.play(Paths.sound('confirmMenu'));
 				if (optionShit[curSelected] == 'donate')
 				{
