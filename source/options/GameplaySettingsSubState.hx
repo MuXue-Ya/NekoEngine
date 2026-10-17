@@ -8,61 +8,61 @@ class GameplaySettingsSubState extends BaseOptionsMenu
 		rpcTitle = 'Gameplay Settings Menu'; //for Discord Rich Presence
 
 		//I'd suggest using "Downscroll" as an example for making your own option since it is the simplest here
-		var option:Option = new Option('Downscroll', //Name
-			'If checked, notes go Down instead of Up, simple enough.', //Description
+		var option:Option = new Option('下落模式', //Name
+			'开启后音符向下落，而不是向上。', //Description
 			'downScroll', //Save data variable name
 			'bool'); //Variable type
 		addOption(option);
 
-		var option:Option = new Option('Middlescroll',
-			'If checked, your notes get centered.',
+		var option:Option = new Option('居中模式',
+			'开启后你的音符会居中显示。',
 			'middleScroll',
 			'bool');
 		addOption(option);
 		
 		#if mobile		
-		var option:Option = new Option('Invisible Hitbox',
-            'If checked, the hitbox will become invisible.',
+		var option:Option = new Option('隐藏判定框',
+            '开启后判定框将不可见。',
             'invisibleHitbox',
             'bool');
 		addOption(option);
 		
 		#if !ios
-		var option:Option = new Option('Invisible Pause Button',
-            'If checked, the pause button will become invisible.',
+		var option:Option = new Option('隐藏暂停按钮',
+            '开启后暂停按钮将不可见。',
             'invisibleButtonPause',
             'bool');
 		addOption(option);
 		#end
 		#end
 
-		var option:Option = new Option('Opponent Notes',
-			'If unchecked, opponent notes get hidden.',
+		var option:Option = new Option('对手音符',
+			'关闭后隐藏对手的音符。',
 			'opponentStrums',
 			'bool');
 		addOption(option);
 
-		var option:Option = new Option('Ghost Tapping',
-			"If checked, you won't get misses from pressing keys\nwhile there are no notes able to be hit.",
+		var option:Option = new Option('幽灵按键',
+			"开启后，方向上没有音符时\n按键不会被判为Miss。",
 			'ghostTapping',
 			'bool');
 		addOption(option);
 		
-		var option:Option = new Option('Auto Pause',
-			"If checked, the game automatically pauses if the screen isn't on focus.",
+		var option:Option = new Option('自动暂停',
+			"开启后，画面失去焦点时游戏自动暂停。",
 			'autoPause',
 			'bool');
 		addOption(option);
 		option.onChange = onChangeAutoPause;
 
-		var option:Option = new Option('Disable Reset Button',
-			"If checked, pressing Reset won't do anything.",
+		var option:Option = new Option('禁用重开键',
+			"开启后按重开键将无效果。",
 			'noReset',
 			'bool');
 		addOption(option);
 
-		var option:Option = new Option('Hitsound Volume',
-			'Funny notes does \"Tick!\" when you hit them.',
+		var option:Option = new Option('打击音效音量',
+			'击中音符时会发出“Tick!”声，此项调整音量。',
 			'hitsoundVolume',
 			'percent');
 		addOption(option);
@@ -73,8 +73,8 @@ class GameplaySettingsSubState extends BaseOptionsMenu
 		option.decimals = 1;
 		option.onChange = onChangeHitsoundVolume;
 
-		var option:Option = new Option('Rating Offset',
-			'Changes how late/early you have to hit for a "Sick!"\nHigher values mean you have to hit later.',
+		var option:Option = new Option('评价偏移',
+			'调整击出“Sick!”评价所需的提前/延迟量。\n数值越大，判定越宽松。',
 			'ratingOffset',
 			'int');
 		option.displayFormat = '%vms';
@@ -83,8 +83,8 @@ class GameplaySettingsSubState extends BaseOptionsMenu
 		option.maxValue = 30;
 		addOption(option);
 
-		var option:Option = new Option('Sick! Hit Window',
-			'Changes the amount of time you have\nfor hitting a "Sick!" in milliseconds.',
+		var option:Option = new Option('Sick! 判定窗口',
+			'调整击出“Sick!”评价的\n时间窗口(毫秒)。',
 			'sickWindow',
 			'int');
 		option.displayFormat = '%vms';
@@ -93,8 +93,8 @@ class GameplaySettingsSubState extends BaseOptionsMenu
 		option.maxValue = 45;
 		addOption(option);
 
-		var option:Option = new Option('Good Hit Window',
-			'Changes the amount of time you have\nfor hitting a "Good" in milliseconds.',
+		var option:Option = new Option('Good 判定窗口',
+			'调整击出“Good”评价的\n时间窗口(毫秒)。',
 			'goodWindow',
 			'int');
 		option.displayFormat = '%vms';
@@ -103,8 +103,8 @@ class GameplaySettingsSubState extends BaseOptionsMenu
 		option.maxValue = 90;
 		addOption(option);
 
-		var option:Option = new Option('Bad Hit Window',
-			'Changes the amount of time you have\nfor hitting a "Bad" in milliseconds.',
+		var option:Option = new Option('Bad 判定窗口',
+			'调整击出“Bad”评价的\n时间窗口(毫秒)。',
 			'badWindow',
 			'int');
 		option.displayFormat = '%vms';
@@ -113,8 +113,8 @@ class GameplaySettingsSubState extends BaseOptionsMenu
 		option.maxValue = 135;
 		addOption(option);
 
-		var option:Option = new Option('Safe Frames',
-			'Changes how many frames you have for\nhitting a note earlier or late.',
+		var option:Option = new Option('安全帧数',
+			'调整音符可提前或延后判定的帧数范围。',
 			'safeFrames',
 			'float');
 		option.scrollSpeed = 5;
@@ -123,8 +123,8 @@ class GameplaySettingsSubState extends BaseOptionsMenu
 		option.changeValue = 0.1;
 		addOption(option);
 
-		var option:Option = new Option('Sustains as One Note',
-			"If checked, Hold Notes can't be pressed if you miss,\nand count as a single Hit/Miss.\nUncheck this if you prefer the old Input System.",
+		var option:Option = new Option('长条按单音符计',
+			"开启后，Miss时长条不可继续按压，\n并按单个音符计分。",
 			'guitarHeroSustains',
 			'bool');
 		addOption(option);
