@@ -187,23 +187,88 @@ class Main extends Sprite
 		dateNow = dateNow.replace(" ", "_");
 		dateNow = dateNow.replace(":", "'");
 
-		path = "crash/" + "PsychEngine_0.7.3_" + dateNow + ".txt";
+		path = "crash/" + "NekoEngine_" + dateNow + ".txt";
+
+		var errorStr:String = Std.string(e.error);
+		var firstStack:String = '';
+		var stackStr:String = '';
 
 		for (stackItem in callStack)
 		{
 			switch (stackItem)
 			{
 				case FilePos(s, file, line, column):
-					errMsg += file + " (line " + line + ")\n";
+					var prefix:String = '';
+					if (s != null) switch (s)
+					{
+						case Method(cls, method): prefix = cls + "." + method + " / ";
+						case LocalFunction: prefix = "local function / ";
+						default:
+					}
+					var lineStr:String = "  at " + prefix + file + " (line " + line + ")";
+					stackStr += lineStr + "\n";
+					if (firstStack == '') firstStack = prefix + file + " (line " + line + ")";
 				default:
 					Sys.println(stackItem);
 			}
 		}
 
-		errMsg += "\nUncaught Error: "
-			+ e.error
-			+
-			"\nPlease report this error to the GitHub page: https://github.com/DeveloperPorting/Psych-Engine-0.7.3-Mobile\n\n> Crash Handler written by: sqirra-rng";
+		errMsg += "====== NekoEngine 崩溃报告 / Crash Report ======\n\n";
+		errMsg += "时间 / Time: " + Date.now().toString() + "\n";
+		errMsg += "版本 / Version: NekoEngine v0.01 (based on Psych Engine 0.7.3 Mobile)\n";
+
+		#if mobile
+		// 设备信息(读系统属性, 失败则跳过)
+		var devModel:String = '';
+		var devAndroid:String = '';
+		try {
+			var inp = sys.io.File.read("/system/build.prop", false);
+			for (line in inp)
+			{
+				if (devModel == '' && StringTools.startsWith(line, "ro.product.model="))
+					devModel = line.substr("ro.product.model=".length).trim();
+				else if (devAndroid == '' && StringTools.startsWith(line, "ro.build.version.release="))
+					devAndroid = line.substr("ro.build.version.release=".length).trim();
+			}
+			inp.close();
+		} catch (devE:Dynamic) {}
+		errMsg += "设备 / Device: " + (devModel != '' ? devModel : 'unknown');
+		if (devAndroid != '') errMsg += " (Android " + devAndroid + ")";
+		errMsg += "\n";
+		#end
+
+		try {
+			errMsg += "当前界面 / Current State: " + Type.getClassName(Type.getClass(FlxG.state)) + "\n";
+			if (FlxG.state.substate != null)
+				errMsg += "子界面 / Substate: " + Type.getClassName(Type.getClass(FlxG.state.substate)) + "\n";
+		} catch (stE:Dynamic) {}
+		try {
+			if (Main.fpsVar != null)
+				errMsg += "帧数 / FPS: " + Main.fpsVar.currentFPS
+					+ " | 内存 / Memory: " + flixel.util.FlxStringUtil.formatBytes(Main.fpsVar.memoryMegas) + "\n";
+		} catch (fpsE:Dynamic) {}
+		#if MODS_ALLOWED
+		try {
+			var enabledMods:Array<String> = [];
+			for (m in Mods.getEnabledMods()) enabledMods.push(m.title);
+			if (enabledMods.length > 0)
+				errMsg += "已启用Mod / Enabled Mods: " + enabledMods.join(', ') + "\n";
+		} catch (modE:Dynamic) {}
+		#end
+
+		errMsg += "\n错误 / Error: " + errorStr + "\n";
+		errMsg += "堆栈 / Stack:\n" + stackStr;
+
+		errMsg += "\n---------- 中文说明 ----------\n";
+		errMsg += "游戏遇到了严重错误，已经崩溃关闭。\n";
+		errMsg += "本日志已保存，可发送给开发者帮助定位问题。\n";
+		errMsg += "日志位置 / Log path: " + (#if mobile StorageSystem.getDirectory() + #end "crash/") + "\n";
+
+		errMsg += "\n---------- English ----------\n";
+		errMsg += "The game has encountered a fatal error and crashed.\n";
+		errMsg += "This log has been saved — please send it to the developer to help fix the issue.\n";
+		errMsg += "Report it on GitHub: https://github.com/MuXue-Ya/NekoEngine\n";
+		errMsg += "\n> Crash Handler written by: sqirra-rng | Enhanced by NekoEngine";
 
 		if (!FileSystem.exists(#if mobile StorageSystem.getDirectory() + #end "crash"))
 			FileSystem.createDirectory(#if mobile StorageSystem.getDirectory() + #end "crash");
@@ -213,10 +278,19 @@ class Main extends Sprite
 		Sys.println(errMsg);
 		Sys.println("Crash dump saved in " + Path.normalize(path));
 
+		// 弹窗只显示简短摘要(完整内容在日志文件里)
+		var shortMsg:String = "";
+		shortMsg += "中文：游戏遇到严重错误，即将关闭。\n";
+		if (firstStack != '') shortMsg += "错误 / Error: " + errorStr + "\n位置 / At: " + firstStack + "\n";
+		else shortMsg += "错误 / Error: " + errorStr + "\n";
+		shortMsg += "详细日志 / Full log:\n" + (#if mobile StorageSystem.getDirectory() + #end "crash/") + "\n\n";
+		shortMsg += "English: A fatal error occurred. The game will close.\n";
+		shortMsg += "See the log file above for full details.";
+
 		#if mobile
-		PopUp.showAlert("Error!", errMsg, "Close");
+		PopUp.showAlert("NekoEngine 崩溃 / Crash", shortMsg, "确定 / Close");
 		#else
-		Application.current.window.alert(errMsg, "Error!");
+		Application.current.window.alert(shortMsg, "NekoEngine 崩溃 / Crash");
 		#end
 		#if DISCORD_ALLOWED
 		DiscordClient.shutdown();
