@@ -1,0 +1,171 @@
+package debug;
+
+import flixel.FlxG;
+import openfl.display.Bitmap;
+import openfl.display.BitmapData;
+import openfl.display.Sprite;
+import openfl.geom.Rectangle;
+import openfl.text.TextField;
+import openfl.text.TextFormat;
+import openfl.system.System;
+
+/**
+	引擎信息显示器: 引擎名+版本 / 帧数+曲线 / 内存+曲线
+**/
+class FPSCounter extends Sprite
+{
+	/**
+		The current frame rate, expressed using frames-per-second
+	**/
+	public var currentFPS(default, null):Int;
+
+	/**
+		The current memory usage (WARNING: this is NOT your total program memory usage, rather it shows the garbage collector memory)
+	**/
+	public var memoryMegas(get, never):Float;
+
+	// ===== 图表参数 =====
+	static inline var GRAPH_W:Int = 100;	// 曲线宽度(像素)
+	static inline var GRAPH_H:Int = 30;		// 曲线高度(像素)
+	static inline var GAP:Int = 3;			// 行间距
+
+	// ===== 内部组件 =====
+	var verText:TextField;	// 引擎名+版本
+	var fpsText:TextField;	// 帧数
+	var memText:TextField;	// 内存
+	var fpsBD:BitmapData;	// 帧数曲线
+	var memBD:BitmapData;	// 内存曲线
+	var baseColor:Int;
+
+	var times:Array<Float>;
+	var memMax:Float = 1;	// 内存曲线的动态最大值
+
+	public function new(x:Float = 10, y:Float = 10, color:Int = 0x000000)
+	{
+		super();
+
+		this.x = x #if ios + 50 #end;
+		this.y = y;
+		baseColor = color;
+
+		currentFPS = 0;
+		mouseEnabled = false;
+		mouseChildren = false;
+		times = [];
+
+		var fmt = new TextFormat("_sans", 12, color);
+
+		// 引擎名+版本
+		verText = mkText(fmt);
+		verText.text = 'NekoEngine v0.01';
+		addChild(verText);
+
+		// 帧数
+		fpsText = mkText(fmt);
+		fpsText.y = verText.y + verText.height + GAP;
+		addChild(fpsText);
+
+		// 帧数曲线
+		fpsBD = new BitmapData(GRAPH_W, GRAPH_H, true, 0x00000000);
+		var fpsGraph = new Bitmap(fpsBD);
+		fpsGraph.x = 0;
+		fpsGraph.y = fpsText.y + fpsText.height + GAP;
+		addChild(fpsGraph);
+
+		// 内存
+		memText = mkText(fmt);
+		memText.y = fpsGraph.y + GRAPH_H + GAP;
+		addChild(memText);
+
+		// 内存曲线
+		memBD = new BitmapData(GRAPH_W, GRAPH_H, true, 0x00000000);
+		var memGraph = new Bitmap(memBD);
+		memGraph.x = 0;
+		memGraph.y = memText.y + memText.height + GAP;
+		addChild(memGraph);
+
+		#if mobile
+		setScale();
+		#end
+	}
+
+	inline function mkText(fmt:TextFormat):TextField
+	{
+		var t = new TextField();
+		t.selectable = false;
+		t.mouseEnabled = false;
+		t.defaultTextFormat = fmt;
+		t.autoSize = LEFT;
+		t.multiline = false;
+		t.text = '';
+		return t;
+	}
+
+	var deltaTimeout:Float = 0.0;
+
+	// Event Handlers
+	private override function __enterFrame(deltaTime:Float):Void
+	{
+		// prevents the overlay from updating every frame, why would you need to anyways
+		if (deltaTimeout > 1000) {
+			deltaTimeout = 0.0;
+			return;
+		}
+
+		final now:Float = haxe.Timer.stamp() * 1000;
+		times.push(now);
+		while (times[0] < now - 1000) times.shift();
+
+		currentFPS = times.length < FlxG.updateFramerate ? times.length : FlxG.updateFramerate;
+		updateText();
+		#if mobile setScale(); #end
+		deltaTimeout += deltaTime;
+	}
+
+	public dynamic function updateText():Void { // so people can override it in hscript
+		// 文本部分
+		fpsText.text = 'FPS: $currentFPS';
+		fpsText.textColor = (currentFPS < FlxG.drawFramerate * 0.5) ? 0xFFFF0000 : baseColor;
+
+		memText.text = 'Memory: ${flixel.util.FlxStringUtil.formatBytes(memoryMegas)}';
+		memText.textColor = baseColor;
+
+		// ===== 帧数曲线 =====
+		fpsBD.scroll(-1, 0);	// 左移一格
+		fpsBD.fillRect(new Rectangle(GRAPH_W - 1, 0, 1, GRAPH_H), 0x00000000);	// 清空最右列
+		var fpsH:Int = Std.int(Math.max(1, Math.min(1.0, currentFPS / Math.max(FlxG.drawFramerate, 1)) * GRAPH_H));
+		var fpsCol:Int = (currentFPS < FlxG.drawFramerate * 0.5) ? 0xFFFF5555 : 0xFF66FF99;
+		fpsBD.fillRect(new Rectangle(GRAPH_W - 1, GRAPH_H - fpsH, 1, fpsH), fpsCol);
+
+		// ===== 内存曲线 =====
+		var mem:Float = memoryMegas;
+		// 动态量程: 峰值缓慢衰减, 曲线不会长期贴顶
+		memMax = Math.max(mem, memMax * 0.9985);
+		if (memMax < 1) memMax = 1;
+		memBD.scroll(-1, 0);
+		memBD.fillRect(new Rectangle(GRAPH_W - 1, 0, 1, GRAPH_H), 0x00000000);
+		var memH:Int = Std.int(Math.max(1, Math.min(1.0, mem / memMax) * GRAPH_H));
+		memBD.fillRect(new Rectangle(GRAPH_W - 1, GRAPH_H - memH, 1, memH), 0xFF55CCFF);
+	}
+
+	#if mobile
+	public inline function setScale(?scale:Float):Void {
+	    if (scale == null) {
+	        var screenW:Float = FlxG.stage.window.width;
+	        var screenH:Float = FlxG.stage.window.height;
+	        scale = Math.min(screenW / FlxG.width, screenH / FlxG.height);
+	    }
+	
+	    #if android
+	        var finalScale:Float = (scale > 1) ? scale : 1;
+	    #else
+	        var finalScale:Float = (scale < 1 ? scale : 1);
+	    #end
+	
+	    scaleX = scaleY = finalScale;
+	}
+	#end
+
+	inline function get_memoryMegas():Float
+		return cast(System.totalMemory, UInt);
+}

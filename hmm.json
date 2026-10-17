@@ -1,0 +1,102 @@
+{
+  "dependencies": [
+    {
+      "name": "astc-compressor",
+      "type": "git",
+      "dir": null,
+      "ref": "6c0fa6f46d3547ca58859b6ede87e659018a7ff5",
+      "url": "https://github.com/KarimAkra/astc-compressor"
+    },
+    {
+      "name": "hx-ios-uikit",
+      "type": "git",
+      "dir": null,
+      "ref": "bcc77f3021ea1227396e85f309fdea738c4f1663",
+      "url": "https://github.com/rainyt/hx-ios-uikit"
+    },
+    {
+      "name": "lime",
+      "type": "git",
+      "dir": null,
+      "ref": "main",
+      "url": "https://github.com/DeveloperPorting-Stuff/lime-modified"
+    },
+    {
+      "name": "openfl",
+      "type": "haxelib",
+      "version": "9.3.3"
+    },
+    {
+      "name": "flixel",
+      "type": "haxelib",
+      "version": "5.5.0"
+    },
+    {
+      "name": "flixel-addons",
+      "type": "haxelib",
+      "version": "3.2.1"
+    },
+    {
+      "name": "flixel-tools",
+      "type": "haxelib",
+      "version": "1.5.1"
+    },
+    {
+      "name": "flixel-ui",
+      "type": "haxelib",
+      "version": "2.5.0"
+    },
+    {
+      "name": "hxcpp",
+      "type": "git",
+      "dir": null,
+      "ref": "5932340d095a7eea8635fe4d1355f1c0efd0b3c2",
+      "url": "https://github.com/FunkinCrew/hxcpp"
+    },
+    {
+      "name": "hxCodec",
+      "type": "git",
+      "dir": null,
+      "ref": "0a51aed0d9523d22a83e453ce7b593ec7fed4742",
+      "url": "https://github.com/polybiusproxy/hxCodec"
+    },
+    {
+      "name": "SScript",
+      "type": "git",
+      "dir": null,
+      "ref": "master",
+      "url": "https://github.com/DeveloperPorting-Stuff/SScript"
+    },
+    {
+      "name": "hxcpp-debug-server",
+      "type": "haxelib",
+      "version": "1.2.4"
+    },
+    {
+      "name": "tjson",
+      "type": "haxelib",
+      "version": "1.4.0"
+    },
+    {
+      "name": "flxanimate",
+      "type": "git",
+      "dir": null,
+      "ref": "dev",
+      "url": "https://github.com/ShadowMario/flxanimate"
+    },
+    {
+      "name": "linc_luajit",
+      "type": "git",
+      "dir": null,
+      "ref": "main",
+      "url": "https://github.com/DeveloperPorting-Stuff/linc_luajit"
+    },
+    {
+      "name": "android-manager",
+      "type": "git",
+      "dir": null,
+      "ref": "main",
+      "url": "https://github.com/DeveloperPorting-Stuff/android-manager"
+    }
+  ]
+}
