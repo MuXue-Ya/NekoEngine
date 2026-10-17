@@ -79,7 +79,7 @@ class TouchMenuUtil
 		for (i in 0...items.length)
 		{
 			var it = items[i];
-			if (it == null || !it.exists || !it.active) continue;
+			if (it == null || !it.exists || !it.active || !it.visible) continue;
 			var halfW:Float = it.width / 2 + 8;
 			var halfH:Float = it.height / 2 + 8;
 			var cx:Float = it.x + it.width / 2;
