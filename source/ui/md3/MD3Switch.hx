@@ -15,8 +15,6 @@ class MD3Switch extends FlxSpriteGroup
 
 	var track:FlxSprite;
 	var knob:FlxSprite;
-	static var trackG:flixel.graphics.FlxGraphic = null;
-	static var knobG:flixel.graphics.FlxGraphic = null;
 	static inline var TRACK_W:Int = 64;
 	static inline var TRACK_H:Int = 32;
 	static inline var KNOB:Int = 26;
@@ -25,13 +23,9 @@ class MD3Switch extends FlxSpriteGroup
 	{
 		super(x, y);
 		this.onToggle = onToggle;
-		if (trackG == null) trackG = MD3Rounded.get(TRACK_W, TRACK_H, TRACK_H >> 1);
-		if (knobG == null) knobG = MD3Rounded.get(KNOB, KNOB, KNOB >> 1);
-		track = new FlxSprite(0, 0);
-		track.loadGraphic(trackG);
+		track.pixels = MD3Rounded.createBitmap(TRACK_W, TRACK_H, TRACK_H >> 1);
 		track.color = MD3Theme.outline;
-		knob = new FlxSprite(3, 3);
-		knob.loadGraphic(knobG);
+		knob.pixels = MD3Rounded.createBitmap(KNOB, KNOB, KNOB >> 1);
 		knob.color = 0xFFFFFFFF;
 		add(track);
 		add(knob);
