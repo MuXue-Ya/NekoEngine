@@ -1,5 +1,9 @@
 package options;
 
+import ui.md3.MD3Theme;
+import ui.md3.MD3Rounded;
+import mobile.backend.utils.TouchMenuUtil;
+
 import flixel.input.keyboard.FlxKey;
 import flixel.input.gamepad.FlxGamepad;
 import flixel.input.gamepad.FlxGamepadInputID;
@@ -17,6 +21,10 @@ class BaseOptionsMenu extends MusicBeatSubstate
 	private var optionsArray:Array<Option>;
 
 	private var grpOptions:FlxTypedGroup<OptionNameText>;
+	private var grpCards:FlxTypedGroup<FlxSprite>;
+	private var optionCards:Array<FlxSprite> = [];
+	private var touchAcceptFlag:Bool = false;
+	private var touchValueFlag:Int = 0;
 	private var checkboxGroup:FlxTypedGroup<CheckboxThingie>;
 	private var grpTexts:FlxTypedGroup<AttachedText>;
 
@@ -38,11 +46,15 @@ class BaseOptionsMenu extends MusicBeatSubstate
 		DiscordClient.changePresence(rpcTitle, null);
 		#end
 		
-		bg = new FlxSprite().loadGraphic(Paths.image('menuDesat'));
-		bg.color = 0xFFea71fd;
+		bg = new FlxSprite().makeGraphic(1, 1, MD3Theme.surface);
+		bg.scale.set(FlxG.width + 10, FlxG.height + 10);
+		bg.updateHitbox();
 		bg.screenCenter();
-		bg.antialiasing = ClientPrefs.data.antialiasing;
 		add(bg);
+
+		// MD3 卡片层(在文字下层)
+		grpCards = new FlxTypedGroup<FlxSprite>();
+		add(grpCards);
 
 		// avoids lagspikes while scrolling through menus!
 		grpOptions = new FlxTypedGroup<OptionNameText>();
@@ -54,14 +66,20 @@ class BaseOptionsMenu extends MusicBeatSubstate
 		checkboxGroup = new FlxTypedGroup<CheckboxThingie>();
 		add(checkboxGroup);
 
-		descBox = new FlxSprite().makeGraphic(1, 1, FlxColor.BLACK);
-		descBox.alpha = 0.6;
+		descBox = new FlxSprite().makeGraphic(1, 1, MD3Theme.surfaceContainerHigh);
+		descBox.alpha = 0.95;
 		add(descBox);
 
-		var titleText:Alphabet = new Alphabet(75, 45, title, true);
-		titleText.setScale(0.6);
-		titleText.alpha = 0.4;
-		add(titleText);
+		// MD3 顶栏(返回 + 标题)
+		var backLabel = new FlxText(44, 26, 0, "‹", 36);
+		backLabel.setFormat(Paths.font("vcr.ttf"), 36, MD3Theme.onSurface, LEFT);
+		backLabel.borderStyle = OUTLINE;
+		backLabel.borderSize = 2;
+		add(backLabel);
+
+		var titleLabel = new FlxText(92, 34, 0, title, 26);
+		titleLabel.setFormat(Paths.font("vcr.ttf"), 26, MD3Theme.onSurface, LEFT);
+		add(titleLabel);
 
 		descText = new FlxText(50, 600, 1180, "", 32);
 		descText.setFormat(Paths.font("vcr.ttf"), 32, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
@@ -73,6 +91,10 @@ class BaseOptionsMenu extends MusicBeatSubstate
 		{
 			var optionText:OptionNameText = new OptionNameText(290, 260, optionsArray[i].name);
 			optionText.isMenuItem = true;
+			var card:FlxSprite = new FlxSprite(40, optionText.y - 12).loadGraphic(MD3Rounded.get(FlxG.width - 80, 78, 18));
+			card.color = MD3Theme.surfaceContainer;
+			grpCards.add(card);
+			optionCards.push(card);
 			/*optionText.forceX = 300;
 			optionText.yMult = 90;*/
 			optionText.targetY = i;
@@ -128,6 +150,32 @@ class BaseOptionsMenu extends MusicBeatSubstate
 	{
 		super.update(elapsed);
 
+		// MD3 卡片跟随行位置 + 选中高亮
+		for (i in 0...optionCards.length)
+		{
+			var row = grpOptions.members[i];
+			if (row == null) continue;
+			optionCards[i].x = 40;
+			optionCards[i].y = row.y - 14;
+			optionCards[i].color = (i == curSelected) ? MD3Theme.primaryContainer : MD3Theme.surfaceContainer;
+			optionCards[i].alpha = (i == curSelected) ? 1 : 0.7;
+		}
+
+		#if mobile
+		TouchMenuUtil.update(grpOptions.members, curSelected,
+			function(d:Int) changeSelection(d),
+			function(i:Int) { if (!bindingKey && nextAccept <= 0) changeSelection(i - curSelected); },
+			function() {
+				if (bindingKey || nextAccept > 0) return;
+				var opt = optionsArray[curSelected];
+				if (opt != null && (opt.type == 'int' || opt.type == 'float' || opt.type == 'percent' || opt.type == 'string'))
+					touchValueFlag = 1;
+				else
+					touchAcceptFlag = true;
+			}
+		);
+		#end
+
 		if(bindingKey)
 		{
 			bindingKeyUpdate(elapsed);
@@ -152,8 +200,9 @@ class BaseOptionsMenu extends MusicBeatSubstate
 		{
 			if(curOption.type == 'bool')
 			{
-				if(controls.ACCEPT)
+				if(controls.ACCEPT || touchAcceptFlag)
 				{
+					touchAcceptFlag = false;
 					FlxG.sound.play(Paths.sound('scrollMenu'));
 					curOption.setValue((curOption.getValue() == true) ? false : true);
 					curOption.change();
@@ -164,8 +213,9 @@ class BaseOptionsMenu extends MusicBeatSubstate
 			{
 				if(curOption.type == 'keybind')
 				{
-					if(controls.ACCEPT)
+					if(controls.ACCEPT || touchAcceptFlag)
 					{
+						touchAcceptFlag = false;
 						bindingBlack = new FlxSprite().makeGraphic(1, 1, FlxColor.WHITE);
 						bindingBlack.scale.set(FlxG.width, FlxG.height);
 						bindingBlack.updateHitbox();
@@ -187,16 +237,18 @@ class BaseOptionsMenu extends MusicBeatSubstate
 						FlxG.sound.play(Paths.sound('scrollMenu'));
 					}
 				}
-				else if(controls.UI_LEFT || controls.UI_RIGHT)
+				else if(controls.UI_LEFT || controls.UI_RIGHT || touchValueFlag != 0)
 				{
-					var pressed = (controls.UI_LEFT_P || controls.UI_RIGHT_P);
+					var touchDir:Int = touchValueFlag;
+					if (touchDir != 0) { touchValueFlag = 0; holdTime = 0; }
+					var pressed = (controls.UI_LEFT_P || controls.UI_RIGHT_P || touchDir != 0);
 					if(holdTime > 0.5 || pressed)
 					{
 						if(pressed)
 						{
 							var add:Dynamic = null;
 							if(curOption.type != 'string')
-								add = controls.UI_LEFT ? -curOption.changeValue : curOption.changeValue;
+								add = (touchDir != 0) ? (touchDir * curOption.changeValue) : (controls.UI_LEFT ? -curOption.changeValue : curOption.changeValue);
 
 							switch(curOption.type)
 							{
@@ -218,7 +270,7 @@ class BaseOptionsMenu extends MusicBeatSubstate
 
 								case 'string':
 									var num:Int = curOption.curOption; //lol
-									if(controls.UI_LEFT_P) --num;
+									if(touchDir < 0 || controls.UI_LEFT_P) --num;
 									else num++;
 
 									if(num < 0)
