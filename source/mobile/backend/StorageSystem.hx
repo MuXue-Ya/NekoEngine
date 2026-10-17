@@ -111,8 +111,26 @@ class StorageSystem
 		try
 		{
 			var paths = [getAssetsDirectory(), getDirectory()];
-			if (!FileSystem.exists(paths[0])) FileSystem.createDirectory(paths[0]);
-			if (!FileSystem.exists(paths[1])) FileSystem.createDirectory(paths[1]);
+			
+			// 等待用户授权后再创建文件夹(最多12秒)
+			var ready:Bool = false;
+			for (i in 0...12)
+			{
+				if (!FileSystem.exists(paths[0])) FileSystem.createDirectory(paths[0]);
+				if (!FileSystem.exists(paths[1])) FileSystem.createDirectory(paths[1]);
+				if (FileSystem.exists(paths[0]) && FileSystem.exists(paths[1]))
+				{
+					ready = true;
+					break;
+				}
+				Sys.sleep(1);
+			}
+			
+			if (!ready)
+			{
+				PopUp.showAlert("Storage Permission", "Please grant storage permission, then restart the game.", "OK");
+				return true;
+			}
 			
 			#if android
 			// Creating .nomedia files to avoid images remaining in the gallery
