@@ -58,7 +58,17 @@ class Main extends Sprite
 		
         #if mobile
 		StorageSystem.getPermissions();
-		Sys.setCwd(StorageSystem.getAssetsDirectory());
+		var __assetsDir:String = StorageSystem.getAssetsDirectory();
+		try
+		{
+			if (!FileSystem.exists(__assetsDir)) FileSystem.createDirectory(__assetsDir);
+			Sys.setCwd(__assetsDir);
+		}
+		catch (e:Dynamic)
+		{
+			PopUp.showAlert("Storage Error", "Cannot access storage. Please grant permission and restart the game.", "OK");
+			lime.system.System.exit(0);
+		}
 		FlxG.signals.preUpdate.add(function() 
 		{
 			MobileUtil.updateInputMethod();
