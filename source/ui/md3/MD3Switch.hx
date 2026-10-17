@@ -23,8 +23,10 @@ class MD3Switch extends FlxSpriteGroup
 	{
 		super(x, y);
 		this.onToggle = onToggle;
+		track = new FlxSprite(0, 0);
 		track.pixels = MD3Rounded.createBitmap(TRACK_W, TRACK_H, TRACK_H >> 1);
 		track.color = MD3Theme.outline;
+		knob = new FlxSprite(3, 3);
 		knob.pixels = MD3Rounded.createBitmap(KNOB, KNOB, KNOB >> 1);
 		knob.color = 0xFFFFFFFF;
 		add(track);
