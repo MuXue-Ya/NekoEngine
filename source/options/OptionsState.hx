@@ -6,6 +6,7 @@ import flixel.group.FlxGroup.FlxTypedGroup;
 import flixel.math.FlxMath;
 import flixel.text.FlxText;
 import flixel.util.FlxColor;
+import states.MainMenuState;
 import objects.CheckboxThingie;
 import objects.AttachedText;
 import ui.md3.MD3Theme;
@@ -443,7 +444,7 @@ class OptionsState extends MusicBeatState
 	{
 		for (checkbox in checkboxGroup)
 			if(checkbox != null)
-				checkbox.animation.play(checkbox.checked ? 'checked' : 'unchecked');
+				checkbox.daValue = Std.string(optionsArray[checkbox.ID].getValue()) == 'true';
 	}
 
 	// ==================== 选择与确认 ====================
