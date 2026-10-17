@@ -208,8 +208,17 @@ class FreeplayState extends MusicBeatState
 	var instPlaying:Int = -1;
 	public static var vocals:FlxSound = null;
 	var holdTime:Float = 0;
+	var touchAcceptFlag:Bool = false;
+
 	override function update(elapsed:Float)
 	{
+		#if mobile
+		mobile.backend.utils.TouchMenuUtil.update(grpSongs.members, curSelected,
+			function(d:Int) changeSelection(d),
+			function(i:Int) changeSelection(i - curSelected),
+			function() { touchAcceptFlag = true; }
+		);
+		#end
 		if (FlxG.sound.music.volume < 0.7)
 		{
 			FlxG.sound.music.volume += 0.5 * FlxG.elapsed;
@@ -373,8 +382,9 @@ class FreeplayState extends MusicBeatState
 				player.pauseOrResume(player.paused);
 			}
 		}
-		else if (controls.ACCEPT && !player.playingMusic)
+		else if ((controls.ACCEPT || touchAcceptFlag) && !player.playingMusic)
 		{
+			touchAcceptFlag = false;
 			persistentUpdate = false;
 			var songLowercase:String = Paths.formatToSongPath(songs[curSelected].songName);
 			var poop:String = Highscore.formatSong(songLowercase, curDifficulty);
