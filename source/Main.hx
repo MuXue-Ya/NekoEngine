@@ -58,11 +58,11 @@ class Main extends Sprite
 		
         #if mobile
 		StorageSystem.getPermissions();
-		var __assetsDir:String = StorageSystem.getAssetsDirectory();
+		var __dataDir:String = StorageSystem.getDirectory();
 		try
 		{
-			if (!FileSystem.exists(__assetsDir)) FileSystem.createDirectory(__assetsDir);
-			Sys.setCwd(__assetsDir);
+			if (!FileSystem.exists(__dataDir)) FileSystem.createDirectory(__dataDir);
+			Sys.setCwd(__dataDir);
 		}
 		catch (e:Dynamic)
 		{
