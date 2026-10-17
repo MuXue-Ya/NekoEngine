@@ -72,13 +72,13 @@ class BaseOptionsMenu extends MusicBeatSubstate
 
 		// MD3 顶栏(返回 + 标题)
 		var backLabel = new FlxText(44, 26, 0, "‹", 36);
-		backLabel.setFormat(Paths.font("vcr.ttf"), 36, MD3Theme.onSurface, LEFT);
-		backLabel.borderStyle = OUTLINE;
+		backLabel.setFormat(Paths.font("vcr.ttf"), 36, MD3Theme.onSurface, flixel.text.FlxTextAlign.LEFT);
+		backLabel.borderStyle = flixel.text.FlxTextBorderStyle.OUTLINE;
 		backLabel.borderSize = 2;
 		add(backLabel);
 
 		var titleLabel = new FlxText(92, 34, 0, title, 26);
-		titleLabel.setFormat(Paths.font("vcr.ttf"), 26, MD3Theme.onSurface, LEFT);
+		titleLabel.setFormat(Paths.font("vcr.ttf"), 26, MD3Theme.onSurface, flixel.text.FlxTextAlign.LEFT);
 		add(titleLabel);
 
 		descText = new FlxText(50, 600, 1180, "", 32);
