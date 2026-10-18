@@ -158,7 +158,8 @@ class OptionsState extends MusicBeatState
 		add(backIcon);
 
 		// 重置按钮(返回键左侧): 选中任意一行后点它 = 该行恢复默认值
-		resetBtn = new FlxSprite(FlxG.width - 36 - 48 - 56, 18);
+		// 间距72: 两个按钮±8的触控外扩区不能重叠, 否则可能同时触发重置和返回
+		resetBtn = new FlxSprite(FlxG.width - 36 - 48 - 72, 18);
 		resetBtn.pixels = MD3Rounded.createBitmap(48, 48, 24);
 		resetBtn.color = MD3Theme.surfaceContainerHigh;
 		add(resetBtn);
