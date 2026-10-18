@@ -34,7 +34,7 @@ class FreeplayState extends MusicBeatState
 	var listX:Float = 36;
 	var rowH:Float = 56;
 	var rowGap:Float = 10;
-	var listY:Float = 68;
+	var listY:Float = 240;	// 选中卡片的纵向位置(过高压回按钮)
 	var _drawDistance:Int = 5;
 
 	private static var curSelected:Int = 0;
@@ -52,7 +52,7 @@ class FreeplayState extends MusicBeatState
 	// 详情面板
 	var panelX:Float = 830;
 	var panelW:Float = 414;
-	var panelY:Float = 68;
+	var panelY:Float = 100;
 	var iconBig:HealthIcon;
 	var songNameText:FlxText;
 	var charNameText:FlxText;
@@ -68,6 +68,8 @@ class FreeplayState extends MusicBeatState
 
 	var changersText:FlxText;
 	var panelExtras:Array<FlxText> = [];	// 面板伴生文字(随面板显隐)
+	var backBtn:FlxSprite;
+	var backIcon:FlxSprite;
 	var lerpScore:Int = 0;
 	var lerpRating:Float = 0;
 	var intendedScore:Int = 0;
@@ -136,6 +138,16 @@ class FreeplayState extends MusicBeatState
 		shade.scrollFactor.set();
 		shade.alpha = 0.65;
 		add(shade);
+
+		// 左上角返回按钮(‹): 试听中=停止试听, 否则回主菜单
+		backBtn = new FlxSprite(36, 18);
+		backBtn.pixels = MD3Rounded.createBitmap(44, 44, 22);
+		backBtn.color = MD3Theme.surfaceContainerHigh;
+		add(backBtn);
+		backIcon = new FlxSprite(backBtn.x + 8, backBtn.y + 8);
+		backIcon.pixels = MD3Rounded.createBackArrow(28, 3);
+		backIcon.color = 0xFFFFFFFF;
+		add(backIcon);
 
 		// ===== 歌曲卡片列表 =====
 		for (i in 0...songs.length)
@@ -441,6 +453,33 @@ class FreeplayState extends MusicBeatState
 		FlxG.sound.play(Paths.sound('scrollMenu'));
 	}
 
+	function doBack():Void
+	{
+		if (player.playingMusic)
+		{
+			// 试听中: 停止试听, 恢复菜单音乐(留在本页)
+			FlxG.sound.music.stop();
+			destroyFreeplayVocals();
+			FlxG.sound.music.volume = 0;
+			instPlaying = -1;
+
+			player.playingMusic = false;
+			player.switchPlayMusic();
+
+			FlxG.sound.playMusic(Paths.music('freakyMenu'), 0);
+			FlxTween.tween(FlxG.sound.music, {volume: 1}, 1);
+		}
+		else
+		{
+			persistentUpdate = false;
+			if(colorTween != null) {
+				colorTween.cancel();
+			}
+			FlxG.sound.play(Paths.sound('cancelMenu'));
+			MusicBeatState.switchState(new MainMenuState());
+		}
+	}
+
 	public static function destroyFreeplayVocals() {
 		if(vocals != null) {
 			vocals.stop();
@@ -631,6 +670,14 @@ class FreeplayState extends MusicBeatState
 			ratingSplit[1] += '0';
 		}
 
+		// 试听按钮动态标签: 未播=试听, 播放中=暂停, 已暂停=继续
+		var listenLabel:String = (instPlaying == curSelected && player.playingMusic) ? (player.paused ? '继续试听' : '暂停') : '试听';
+		if (listenText.text != listenLabel)
+		{
+			listenText.text = listenLabel;
+			listenText.x = listenBtn.x + (listenBtn.width - listenText.width) / 2;
+		}
+
 		if (!player.playingMusic)
 		{
 			bestValueText.text = '' + lerpScore;
@@ -691,30 +738,7 @@ class FreeplayState extends MusicBeatState
 		}
 
 		if (controls.BACK)
-		{
-			if (player.playingMusic)
-			{
-				FlxG.sound.music.stop();
-				destroyFreeplayVocals();
-				FlxG.sound.music.volume = 0;
-				instPlaying = -1;
-
-				player.playingMusic = false;
-				player.switchPlayMusic();
-
-				FlxG.sound.playMusic(Paths.music('freakyMenu'), 0);
-				FlxTween.tween(FlxG.sound.music, {volume: 1}, 1);
-			}
-			else
-			{
-				persistentUpdate = false;
-				if(colorTween != null) {
-					colorTween.cancel();
-				}
-				FlxG.sound.play(Paths.sound('cancelMenu'));
-				MusicBeatState.switchState(new MainMenuState());
-			}
-		}
+			doBack();
 
 		if(FlxG.keys.justPressed.CONTROL && !player.playingMusic)
 			openChangers();
@@ -726,6 +750,13 @@ class FreeplayState extends MusicBeatState
 			openResetScore();
 
 		#if mobile
+		for (touch in FlxG.touches.list)
+		{
+			if (touch.justPressed
+				&& touch.x >= backBtn.x - 8 && touch.x <= backBtn.x + backBtn.width + 8
+				&& touch.y >= backBtn.y - 8 && touch.y <= backBtn.y + backBtn.height + 8)
+				doBack();
+		}
 		handlePanelTouch();
 		// 屏幕触控选歌: 点卡片=选中, 再点已选中=开始
 		TouchMenuUtil.update(cards, curSelected, function(i:Int) changeSelection(i, false), function(i:Int) changeSelection(i - curSelected, false), startSong);
