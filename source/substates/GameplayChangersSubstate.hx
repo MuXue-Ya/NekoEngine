@@ -1,17 +1,32 @@
 package substates;
 
-import objects.AttachedText;
-import objects.CheckboxThingie;
+import flixel.input.touch.FlxTouch;
+import ui.md3.MD3Rounded;
+import ui.md3.MD3Theme;
+import ui.md3.MD3Switch;
 
+/**
+ * 玩法调整 (MD3):
+ *   滚动类型/滚动速度/回放速率/回血倍率/扣血倍率/一击必杀/练习模式/猫娘替你打喵
+ * 触控: 点行选中, bool行点开关切换, 数值行点◀▶单步调整; 键盘: 上下/左右(长按连调)/回车/RESET恢复默认
+ * GameplayOption 逻辑类原样保留。
+ */
 class GameplayChangersSubstate extends MusicBeatSubstate
 {
 	private var curOption:GameplayOption = null;
 	private var curSelected:Int = 0;
 	private var optionsArray:Array<Dynamic> = [];
 
-	private var grpOptions:FlxTypedGroup<Alphabet>;
-	private var checkboxGroup:FlxTypedGroup<CheckboxThingie>;
-	private var grpTexts:FlxTypedGroup<AttachedText>;
+	// 每行成员的平行数组(下标严格对应 optionsArray)
+	var rowCards:Array<FlxSprite> = [];
+	var rowLabels:Array<FlxText> = [];
+	var rowValues:Array<FlxText> = [];
+	var rowSwitches:Array<MD3Switch> = [];
+	var rowDecL:Array<FlxSprite> = [];
+	var rowDecR:Array<FlxSprite> = [];
+
+	var backBtn:FlxSprite;
+	var resetBtn:FlxSprite;
 
 	function getOptions()
 	{
@@ -78,167 +93,151 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 		return null;
 	}
 
+	// 内部名 -> 中文标签
+	function getLabel(name:String):String
+	{
+		return switch (name)
+		{
+			case 'Scroll Type': '滚动类型';
+			case 'Scroll Speed': '滚动速度';
+			case 'Playback Rate': '回放速率';
+			case 'Health Gain Multiplier': '回血倍率';
+			case 'Health Loss Multiplier': '扣血倍率';
+			case 'Instakill on Miss': '一击必杀';
+			case 'Practice Mode': '练习模式';
+			case 'Botplay': '猫娘替你打喵';
+			default: name;
+		}
+	}
+
 	public function new()
 	{
 		super();
-		
-		var bg:FlxSprite = new FlxSprite().makeGraphic(FlxG.width, FlxG.height, FlxColor.BLACK);
-		bg.alpha = 0.6;
+
+		var bg:FlxSprite = new FlxSprite().makeGraphic(FlxG.width, FlxG.height, MD3Theme.surface);
+		bg.alpha = 0.88;
 		add(bg);
 
-		// avoids lagspikes while scrolling through menus!
-		grpOptions = new FlxTypedGroup<Alphabet>();
-		add(grpOptions);
+		var title:FlxText = new FlxText(0, 20, FlxG.width, '玩法调整', 30);
+		title.setFormat(Paths.font('vcr.ttf'), 30, MD3Theme.onSurface, CENTER);
+		add(title);
 
-		grpTexts = new FlxTypedGroup<AttachedText>();
-		add(grpTexts);
+		// 左上返回 / 右上恢复默认
+		backBtn = new FlxSprite(36, 18);
+		backBtn.pixels = MD3Rounded.createBitmap(44, 44, 22);
+		backBtn.color = MD3Theme.surfaceContainerHigh;
+		add(backBtn);
+		var backIcon:FlxSprite = new FlxSprite(backBtn.x + 8, backBtn.y + 8);
+		backIcon.pixels = MD3Rounded.createBackArrow(28, 3);
+		backIcon.color = 0xFFFFFFFF;
+		add(backIcon);
 
-		checkboxGroup = new FlxTypedGroup<CheckboxThingie>();
-		add(checkboxGroup);
-		
+		resetBtn = new FlxSprite(FlxG.width - 36 - 44, 18);
+		resetBtn.pixels = MD3Rounded.createBitmap(44, 44, 22);
+		resetBtn.color = MD3Theme.surfaceContainerHigh;
+		add(resetBtn);
+		var resetIcon:FlxSprite = new FlxSprite(resetBtn.x + 8, resetBtn.y + 8);
+		resetIcon.pixels = MD3Rounded.createResetIcon(28, 3);
+		resetIcon.color = 0xFFFFFFFF;
+		add(resetIcon);
+
 		getOptions();
 
 		for (i in 0...optionsArray.length)
 		{
-			var optionText:Alphabet = new Alphabet(200, 360, optionsArray[i].name, true);
-			optionText.isMenuItem = true;
-			optionText.setScale(0.8);
-			optionText.targetY = i;
-			grpOptions.add(optionText);
+			var opt:GameplayOption = optionsArray[i];
+			var cy:Float = 96 + i * 62;
 
-			if(optionsArray[i].type == 'bool') {
-				optionText.x += 90;
-				optionText.startPosition.x += 90;
-				optionText.snapToPosition();
-				var checkbox:CheckboxThingie = new CheckboxThingie(optionText.x - 105, optionText.y, optionsArray[i].getValue() == true);
-				checkbox.sprTracker = optionText;
-				checkbox.offsetX -= 20;
-				checkbox.offsetY = -52;
-				checkbox.ID = i;
-				checkboxGroup.add(checkbox);
-			} else {
-				optionText.snapToPosition();
-				var valueText:AttachedText = new AttachedText(Std.string(optionsArray[i].getValue()), optionText.width + 40, 0, true, 0.8);
-				valueText.sprTracker = optionText;
-				valueText.copyAlpha = true;
-				valueText.ID = i;
-				grpTexts.add(valueText);
-				optionsArray[i].setChild(valueText);
+			var card:FlxSprite = new FlxSprite(60, cy);
+			card.pixels = MD3Rounded.createBitmap(1160, 52, 12);
+			card.color = MD3Theme.surfaceContainer;
+			add(card);
+			rowCards.push(card);
+
+			var label:FlxText = new FlxText(84, cy + 14, 0, getLabel(opt.name), 20);
+			label.setFormat(Paths.font('vcr.ttf'), 20, MD3Theme.onSurface);
+			add(label);
+			rowLabels.push(label);
+
+			if(opt.type == 'bool')
+			{
+				var optRef:GameplayOption = opt;
+				var sw:MD3Switch = new MD3Switch(1120, cy + 10, opt.getValue() == true, function(v:Bool)
+				{
+					optRef.setValue(v);
+					optRef.change();
+					FlxG.sound.play(Paths.sound('scrollMenu'));
+				});
+				add(sw);
+				rowSwitches.push(sw);
+				rowValues.push(null);
+				rowDecL.push(null);
+				rowDecR.push(null);
 			}
-			updateTextFrom(optionsArray[i]);
+			else
+			{
+				var valT:FlxText = new FlxText(830, cy + 14, 230, '', 18);
+				valT.setFormat(Paths.font('vcr.ttf'), 18, MD3Theme.onSurfaceVariant, RIGHT);
+				add(valT);
+				rowValues.push(valT);
+
+				var decL:FlxSprite = new FlxSprite(1080, cy + 10);
+				decL.pixels = MD3Rounded.createBitmap(32, 32, 8);
+				decL.color = MD3Theme.primaryContainer;
+				add(decL);
+				var decLText:FlxText = new FlxText(0, 0, 0, '<', 14);
+				decLText.setFormat(Paths.font('vcr.ttf'), 14, MD3Theme.onPrimaryContainer, CENTER);
+				decLText.setPosition(decL.x + (32 - decLText.width) / 2, decL.y + 8);
+				add(decLText);
+				rowDecL.push(decL);
+
+				var decR:FlxSprite = new FlxSprite(1160, cy + 10);
+				decR.pixels = MD3Rounded.createBitmap(32, 32, 8);
+				decR.color = MD3Theme.primaryContainer;
+				add(decR);
+				var decRText:FlxText = new FlxText(0, 0, 0, '>', 14);
+				decRText.setFormat(Paths.font('vcr.ttf'), 14, MD3Theme.onPrimaryContainer, CENTER);
+				decRText.setPosition(decR.x + (32 - decRText.width) / 2, decR.y + 8);
+				add(decRText);
+				rowDecR.push(decR);
+
+				updateTextFrom(opt);
+			}
 		}
 
 		changeSelection();
-		#if mobile
-		addVirtualPad('LEFT_FULL', 'A_B_C');
-		addVirtualPadCamera();
-		#end
-		reloadCheckboxes();
 	}
 
 	var nextAccept:Int = 5;
 	var holdTime:Float = 0;
 	var holdValue:Float = 0;
+
 	override function update(elapsed:Float)
 	{
 		if (controls.UI_UP_P)
-		{
 			changeSelection(-1);
-		}
 		if (controls.UI_DOWN_P)
-		{
 			changeSelection(1);
-		}
 
-		if (controls.BACK) {
-			close();
-			ClientPrefs.saveSettings();
-			FlxG.sound.play(Paths.sound('cancelMenu'));
-		}
+		if (controls.BACK)
+			doClose();
+
+		#if mobile
+		handleTouch();
+		#end
 
 		if(nextAccept <= 0)
 		{
-			var usesCheckbox = true;
-			if(curOption.type != 'bool')
-			{
-				usesCheckbox = false;
-			}
-
-			if(usesCheckbox)
+			if(curOption.type == 'bool')
 			{
 				if(controls.ACCEPT)
-				{
-					FlxG.sound.play(Paths.sound('scrollMenu'));
-					curOption.setValue((curOption.getValue() == true) ? false : true);
-					curOption.change();
-					reloadCheckboxes();
-				}
+					toggleBool(curSelected);
 			} else {
 				if(controls.UI_LEFT || controls.UI_RIGHT) {
 					var pressed = (controls.UI_LEFT_P || controls.UI_RIGHT_P);
 					if(holdTime > 0.5 || pressed) {
 						if(pressed) {
-							var add:Dynamic = null;
-							if(curOption.type != 'string') {
-								add = controls.UI_LEFT ? -curOption.changeValue : curOption.changeValue;
-							}
-
-							switch(curOption.type)
-							{
-								case 'int' | 'float' | 'percent':
-									holdValue = curOption.getValue() + add;
-									if(holdValue < curOption.minValue) holdValue = curOption.minValue;
-									else if (holdValue > curOption.maxValue) holdValue = curOption.maxValue;
-
-									switch(curOption.type)
-									{
-										case 'int':
-											holdValue = Math.round(holdValue);
-											curOption.setValue(holdValue);
-
-										case 'float' | 'percent':
-											holdValue = FlxMath.roundDecimal(holdValue, curOption.decimals);
-											curOption.setValue(holdValue);
-									}
-
-								case 'string':
-									var num:Int = curOption.curOption; //lol
-									if(controls.UI_LEFT_P) --num;
-									else num++;
-
-									if(num < 0) {
-										num = curOption.options.length - 1;
-									} else if(num >= curOption.options.length) {
-										num = 0;
-									}
-
-									curOption.curOption = num;
-									curOption.setValue(curOption.options[num]); //lol
-									
-									if (curOption.name == "Scroll Type")
-									{
-										var oOption:GameplayOption = getOptionByName("Scroll Speed");
-										if (oOption != null)
-										{
-											if (curOption.getValue() == "constant")
-											{
-												oOption.displayFormat = "%v";
-												oOption.maxValue = 6;
-											}
-											else
-											{
-												oOption.displayFormat = "%vX";
-												oOption.maxValue = 3;
-												if(oOption.getValue() > 3) oOption.setValue(3);
-											}
-											updateTextFrom(oOption);
-										}
-									}
-									//trace(curOption.options[num]);
-							}
-							updateTextFrom(curOption);
-							curOption.change();
-							FlxG.sound.play(Paths.sound('scrollMenu'));
+							adjustOption(curOption, controls.UI_LEFT ? -1 : 1);
 						} else if(curOption.type != 'string') {
 							holdValue = Math.max(curOption.minValue, Math.min(curOption.maxValue, holdValue + curOption.scrollSpeed * elapsed * (controls.UI_LEFT ? -1 : 1)));
 
@@ -246,7 +245,7 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 							{
 								case 'int':
 									curOption.setValue(Math.round(holdValue));
-								
+
 								case 'float' | 'percent':
 									var blah:Float = Math.max(curOption.minValue, Math.min(curOption.maxValue, holdValue + curOption.changeValue - (holdValue % curOption.changeValue)));
 									curOption.setValue(FlxMath.roundDecimal(blah, curOption.decimals));
@@ -264,36 +263,8 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 				}
 			}
 
-			if(controls.RESET #if mobile || virtualPad.getButton('buttonC').justPressed #end)
-			{
-				for (i in 0...optionsArray.length)
-				{
-					var leOption:GameplayOption = optionsArray[i];
-					leOption.setValue(leOption.defaultValue);
-					if(leOption.type != 'bool')
-					{
-						if(leOption.type == 'string')
-						{
-							leOption.curOption = leOption.options.indexOf(leOption.getValue());
-						}
-						updateTextFrom(leOption);
-					}
-
-					if(leOption.name == 'Scroll Speed')
-					{
-						leOption.displayFormat = "%vX";
-						leOption.maxValue = 3;
-						if(leOption.getValue() > 3)
-						{
-							leOption.setValue(3);
-						}
-						updateTextFrom(leOption);
-					}
-					leOption.change();
-				}
-				FlxG.sound.play(Paths.sound('cancelMenu'));
-				reloadCheckboxes();
-			}
+			if(controls.RESET)
+				resetAll();
 		}
 
 		if(nextAccept > 0) {
@@ -302,12 +273,171 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 		super.update(elapsed);
 	}
 
+	// ===== 触控 =====
+	#if mobile
+	function handleTouch():Void
+	{
+		for (touch in FlxG.touches.list)
+		{
+			if (!touch.justPressed) continue;
+
+			if (hitSpr(touch, backBtn))
+			{
+				doClose();
+				continue;
+			}
+			if (hitSpr(touch, resetBtn))
+			{
+				resetAll();
+				continue;
+			}
+
+			for (i in 0...rowCards.length)
+			{
+				var card:FlxSprite = rowCards[i];
+				if (touch.x < card.x || touch.x > card.x + card.width || touch.y < card.y || touch.y > card.y + card.height)
+					continue;
+
+				selectTo(i);
+
+				if (rowSwitches[i] != null && hitSpr(touch, rowSwitches[i]))
+					toggleBool(i);
+				else if (rowDecL[i] != null && hitSpr(touch, rowDecL[i]))
+					adjustOption(optionsArray[i], -1);
+				else if (rowDecR[i] != null && hitSpr(touch, rowDecR[i]))
+					adjustOption(optionsArray[i], 1);
+				break;
+			}
+		}
+	}
+
+	function hitSpr(touch:FlxTouch, spr:FlxSprite):Bool
+	{
+		if (spr == null || !spr.visible) return false;
+		return touch.x >= spr.x - 6 && touch.x <= spr.x + spr.width + 6
+			&& touch.y >= spr.y - 6 && touch.y <= spr.y + spr.height + 6;
+	}
+	#end
+
+	// ===== 动作(键盘与触控共用) =====
+
+	function doClose():Void
+	{
+		ClientPrefs.saveSettings();
+		FlxG.sound.play(Paths.sound('cancelMenu'));
+		close();
+	}
+
+	function toggleBool(i:Int):Void
+	{
+		var opt:GameplayOption = optionsArray[i];
+		FlxG.sound.play(Paths.sound('scrollMenu'));
+		opt.setValue((opt.getValue() == true) ? false : true);
+		opt.change();
+		syncSwitches();
+	}
+
+	function adjustOption(opt:GameplayOption, dir:Int):Void
+	{
+		if (opt.type == 'string')
+		{
+			cycleStringOption(opt, dir);
+			return;
+		}
+		// int/float/percent: 单步调整
+		holdValue = opt.getValue() + dir * opt.changeValue;
+		if(holdValue < opt.minValue) holdValue = opt.minValue;
+		else if(holdValue > opt.maxValue) holdValue = opt.maxValue;
+
+		switch(opt.type)
+		{
+			case 'int':
+				holdValue = Math.round(holdValue);
+				opt.setValue(holdValue);
+			case 'float' | 'percent':
+				holdValue = FlxMath.roundDecimal(holdValue, opt.decimals);
+				opt.setValue(holdValue);
+		}
+		updateTextFrom(opt);
+		opt.change();
+		FlxG.sound.play(Paths.sound('scrollMenu'));
+	}
+
+	function cycleStringOption(opt:GameplayOption, dir:Int):Void
+	{
+		var num:Int = opt.curOption;
+		num += dir;
+		if(num < 0) num = opt.options.length - 1;
+		else if(num >= opt.options.length) num = 0;
+		opt.curOption = num;
+		opt.setValue(opt.options[num]);
+
+		if (opt.name == "Scroll Type")
+		{
+			var oOption:GameplayOption = getOptionByName("Scroll Speed");
+			if (oOption != null)
+			{
+				if (opt.getValue() == "constant")
+				{
+					oOption.displayFormat = "%v";
+					oOption.maxValue = 6;
+				}
+				else
+				{
+					oOption.displayFormat = "%vX";
+					oOption.maxValue = 3;
+					if(oOption.getValue() > 3) oOption.setValue(3);
+				}
+				updateTextFrom(oOption);
+			}
+		}
+		updateTextFrom(opt);
+		opt.change();
+		FlxG.sound.play(Paths.sound('scrollMenu'));
+	}
+
+	function resetAll():Void
+	{
+		for (i in 0...optionsArray.length)
+		{
+			var leOption:GameplayOption = optionsArray[i];
+			leOption.setValue(leOption.defaultValue);
+			if(leOption.type != 'bool')
+			{
+				if(leOption.type == 'string')
+				{
+					leOption.curOption = leOption.options.indexOf(leOption.getValue());
+				}
+				updateTextFrom(leOption);
+			}
+
+			if(leOption.name == 'Scroll Speed')
+			{
+				leOption.displayFormat = "%vX";
+				leOption.maxValue = 3;
+				if(leOption.getValue() > 3)
+				{
+					leOption.setValue(3);
+				}
+				updateTextFrom(leOption);
+			}
+			leOption.change();
+		}
+		FlxG.sound.play(Paths.sound('cancelMenu'));
+		syncSwitches();
+	}
+
+	// ===== 视觉同步 =====
+
+	// 值文字: 写到本行 FlxText(不再走 Alphabet child 代理)
 	function updateTextFrom(option:GameplayOption) {
+		var idx:Int = optionsArray.indexOf(option);
+		if (idx < 0 || idx >= rowValues.length || rowValues[idx] == null) return;
 		var text:String = option.displayFormat;
 		var val:Dynamic = option.getValue();
-		if(option.type == 'percent') val *= 100;
-		var def:Dynamic = option.defaultValue;
-		option.text = text.replace('%v', val).replace('%d', def);
+		if (option.name == 'Scroll Type')
+			val = (val == 'constant') ? '固定' : '倍增';
+		rowValues[idx].text = text.replace('%v', Std.string(val)).replace('%d', Std.string(option.defaultValue));
 	}
 
 	function clearHold()
@@ -317,7 +447,7 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 		}
 		holdTime = 0;
 	}
-	
+
 	function changeSelection(change:Int = 0)
 	{
 		curSelected += change;
@@ -326,31 +456,28 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 		if (curSelected >= optionsArray.length)
 			curSelected = 0;
 
-		var bullShit:Int = 0;
+		curOption = optionsArray[curSelected];
 
-		for (item in grpOptions.members) {
-			item.targetY = bullShit - curSelected;
-			bullShit++;
+		for (i in 0...rowCards.length)
+			rowCards[i].color = (i == curSelected) ? MD3Theme.primaryContainer : MD3Theme.surfaceContainer;
 
-			item.alpha = 0.6;
-			if (item.targetY == 0) {
-				item.alpha = 1;
-			}
-		}
-		for (text in grpTexts) {
-			text.alpha = 0.6;
-			if(text.ID == curSelected) {
-				text.alpha = 1;
-			}
-		}
-		curOption = optionsArray[curSelected]; //shorter lol
-		FlxG.sound.play(Paths.sound('scrollMenu'));
+		FlxG.sound.play(Paths.sound('scrollMenu'), 0.4);
 	}
 
-	function reloadCheckboxes() {
-		for (checkbox in checkboxGroup) {
-			checkbox.daValue = (optionsArray[checkbox.ID].getValue() == true);
-		}
+	function selectTo(i:Int):Void
+	{
+		if (i < 0 || i >= optionsArray.length) return;
+		curSelected = i;
+		curOption = optionsArray[i];
+		for (j in 0...rowCards.length)
+			rowCards[j].color = (j == curSelected) ? MD3Theme.primaryContainer : MD3Theme.surfaceContainer;
+	}
+
+	function syncSwitches():Void
+	{
+		for (i in 0...rowSwitches.length)
+			if (rowSwitches[i] != null)
+				rowSwitches[i].on = (optionsArray[i].getValue() == true);
 	}
 }
 
