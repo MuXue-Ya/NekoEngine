@@ -189,6 +189,11 @@ class ClientPrefs {
 			final refreshRate:Int = FlxG.stage.application.window.displayMode.refreshRate;
 			data.framerate = Std.int(FlxMath.bound(refreshRate, 60, 240));
 		}
+		// 自愈: 帧率上限不允许超过屏幕刷新率, 否则更新频率超过设备能力会导致慢动作/丢输入
+		{
+			final refreshRate:Int = FlxG.stage.application.window.displayMode.refreshRate;
+			if(data.framerate > refreshRate) data.framerate = refreshRate;
+		}
 		#end
 
 		if(data.framerate > FlxG.drawFramerate)

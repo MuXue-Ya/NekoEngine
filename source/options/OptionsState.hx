@@ -67,6 +67,12 @@ class OptionsState extends MusicBeatState
 	var backPressId:Int = -1;
 	var backPressed:Bool = false;
 
+	// 重置按钮(把当前选中的选项恢复默认值)
+	var resetBtn:FlxSprite;
+	var resetIcon:FlxSprite;
+	var resetPressId:Int = -1;
+	var resetPressed:Bool = false;
+
 	var changedMusic:Bool = false;
 	var touchAcceptFlag:Bool = false;
 	var touchValueFlag:Int = 0;
@@ -150,6 +156,16 @@ class OptionsState extends MusicBeatState
 		backIcon.pixels = MD3Rounded.createBackArrow(48, 3);
 		backIcon.color = MD3Theme.onSurface;
 		add(backIcon);
+
+		// 重置按钮(返回键左侧): 选中任意一行后点它 = 该行恢复默认值
+		resetBtn = new FlxSprite(FlxG.width - 36 - 48 - 56, 18);
+		resetBtn.pixels = MD3Rounded.createBitmap(48, 48, 24);
+		resetBtn.color = MD3Theme.surfaceContainerHigh;
+		add(resetBtn);
+		resetIcon = new FlxSprite(resetBtn.x, resetBtn.y);
+		resetIcon.pixels = MD3Rounded.createResetIcon(48, 3);
+		resetIcon.color = MD3Theme.onSurface;
+		add(resetIcon);
 
 		switchCategory(0);
 		ClientPrefs.saveSettings();
@@ -321,7 +337,8 @@ class OptionsState extends MusicBeatState
 		addOption(option);
 		final refreshRate:Int = FlxG.stage.application.window.displayMode.refreshRate;
 		option.minValue = 60;
-		option.maxValue = 240;
+		// 上限不超过屏幕刷新率: 更新频率超过设备能力会导致慢动作/丢输入
+		option.maxValue = Std.int(Math.max(60, refreshRate));
 		option.defaultValue = Std.int(FlxMath.bound(refreshRate, option.minValue, option.maxValue));
 		option.displayFormat = '%v FPS';
 		option.onChange = onChangeFramerate;
@@ -664,6 +681,7 @@ class OptionsState extends MusicBeatState
 		);
 		handleCategoryTouch();
 		handleBackTouch();
+		handleResetTouch();
 		#end
 
 		// ===== 键盘/手柄 =====
@@ -716,6 +734,45 @@ class OptionsState extends MusicBeatState
 		FlxG.sound.play(Paths.sound('cancelMenu'));
 		MusicBeatState.switchState(new MainMenuState());
 	}
+
+	#if mobile
+	function overReset(tx:Float, ty:Float):Bool
+	{
+		return tx >= resetBtn.x - 8 && tx <= resetBtn.x + resetBtn.width + 8
+			&& ty >= resetBtn.y - 8 && ty <= resetBtn.y + resetBtn.height + 8;
+	}
+
+	function handleResetTouch():Void
+	{
+		for (touch in FlxG.touches.list)
+		{
+			if (touch.justPressed && overReset(touch.x, touch.y))
+			{
+				resetPressId = touch.touchPointID;
+				resetPressed = true;
+			}
+			else if (resetPressId != -1 && touch.touchPointID == resetPressId)
+			{
+				if (touch.pressed) resetPressed = overReset(touch.x, touch.y);
+				if (touch.justReleased)
+				{
+					if (overReset(touch.x, touch.y)) resetOption();
+					resetPressId = -1;
+					resetPressed = false;
+				}
+			}
+		}
+		if (resetPressId != -1)
+		{
+			var still:Bool = false;
+			for (t in FlxG.touches.list)
+				if (t.touchPointID == resetPressId && (t.pressed || t.justPressed)) { still = true; break; }
+			if (!still) { resetPressId = -1; resetPressed = false; }
+		}
+		resetBtn.alpha = resetPressed ? 0.7 : 1;
+		resetIcon.alpha = resetPressed ? 0.7 : 1;
+	}
+	#end
 
 	#if mobile
 	function overBack(tx:Float, ty:Float):Bool

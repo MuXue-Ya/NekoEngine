@@ -40,6 +40,9 @@ class FPSCounter extends Sprite
 	var times:Array<Float>;
 	var memMax:Float = 1;	// 内存曲线的动态最大值
 
+	var _rect:Rectangle = new Rectangle();	// 复用的矩形, 避免每帧分配
+	var textCooldown:Float = 0;	// 文字降频刷新计时
+
 	public function new(x:Float = 10, y:Float = 10, color:Int = 0x000000)
 	{
 		super();
@@ -125,35 +128,55 @@ class FPSCounter extends Sprite
 		while (times[0] < now - 1000) times.shift();
 
 		currentFPS = times.length < FlxG.updateFramerate ? times.length : FlxG.updateFramerate;
-		updateText();
+		// 曲线每帧走格, 文字每 200ms 刷一次, 减少文本重排和对象分配
+		textCooldown += deltaTime;
+		if (textCooldown >= 200)
+		{
+			textCooldown = 0;
+			updateText();
+		}
+		else
+		{
+			updateGraphs();
+		}
 		#if mobile setScale(); #end
 		deltaTimeout += deltaTime;
 	}
 
 	public dynamic function updateText():Void { // so people can override it in hscript
-		// 文本部分
+		updateTexts();
+		updateGraphs();
+	}
+
+	dynamic function updateTexts():Void {
 		fpsText.text = 'FPS: $currentFPS';
 		fpsText.textColor = (currentFPS < FlxG.drawFramerate * 0.5) ? 0xFFFF0000 : baseColor;
 
 		memText.text = 'Memory: ${flixel.util.FlxStringUtil.formatBytes(memoryMegas)}';
 		memText.textColor = baseColor;
+	}
 
+	dynamic function updateGraphs():Void {
 		// ===== 帧数曲线 =====
+		_rect.x = GRAPH_W - 1; _rect.y = 0; _rect.width = 1; _rect.height = GRAPH_H;
 		fpsBD.scroll(-1, 0);	// 左移一格
-		fpsBD.fillRect(new Rectangle(GRAPH_W - 1, 0, 1, GRAPH_H), 0x00000000);	// 清空最右列
+		fpsBD.fillRect(_rect, 0x00000000);	// 清空最右列
 		var fpsH:Int = Std.int(Math.max(1, Math.min(1.0, currentFPS / Math.max(FlxG.drawFramerate, 1)) * GRAPH_H));
 		var fpsCol:Int = (currentFPS < FlxG.drawFramerate * 0.5) ? 0xFFFF5555 : 0xFF66FF99;
-		fpsBD.fillRect(new Rectangle(GRAPH_W - 1, GRAPH_H - fpsH, 1, fpsH), fpsCol);
+		_rect.y = GRAPH_H - fpsH; _rect.height = fpsH;
+		fpsBD.fillRect(_rect, fpsCol);
 
 		// ===== 内存曲线 =====
 		var mem:Float = memoryMegas;
 		// 动态量程: 峰值缓慢衰减, 曲线不会长期贴顶
 		memMax = Math.max(mem, memMax * 0.9985);
 		if (memMax < 1) memMax = 1;
+		_rect.y = 0; _rect.height = GRAPH_H;
 		memBD.scroll(-1, 0);
-		memBD.fillRect(new Rectangle(GRAPH_W - 1, 0, 1, GRAPH_H), 0x00000000);
+		memBD.fillRect(_rect, 0x00000000);
 		var memH:Int = Std.int(Math.max(1, Math.min(1.0, mem / memMax) * GRAPH_H));
-		memBD.fillRect(new Rectangle(GRAPH_W - 1, GRAPH_H - memH, 1, memH), 0xFF55CCFF);
+		_rect.y = GRAPH_H - memH; _rect.height = memH;
+		memBD.fillRect(_rect, 0xFF55CCFF);
 	}
 
 	#if mobile
