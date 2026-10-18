@@ -342,8 +342,7 @@ class OptionsState extends MusicBeatState
 		addOption(option);
 		final refreshRate:Int = FlxG.stage.application.window.displayMode.refreshRate;
 		option.minValue = 60;
-		// 上限不超过屏幕刷新率: 更新频率超过设备能力会导致慢动作/丢输入
-		option.maxValue = Std.int(Math.max(60, refreshRate));
+		option.maxValue = 240;
 		option.defaultValue = Std.int(FlxMath.bound(refreshRate, option.minValue, option.maxValue));
 		option.displayFormat = '%v FPS';
 		option.onChange = onChangeFramerate;
