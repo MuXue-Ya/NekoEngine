@@ -68,6 +68,8 @@ class FreeplayState extends MusicBeatState
 	var listenText:FlxText;
 
 	var changersText:FlxText;
+	var changersBtn:FlxSprite;
+	var changersIcon:FlxSprite;
 	var panelExtras:Array<FlxText> = [];	// 面板伴生文字(随面板显隐)
 	var backBtn:FlxSprite;
 	var backIcon:FlxSprite;
@@ -289,10 +291,17 @@ class FreeplayState extends MusicBeatState
 		missingText.visible = false;
 		add(missingText);
 
-		// ⚙ 玩法调整(左下角小字按钮)
-		changersText = new FlxText(48, FlxG.height - 32, 0, '玩法调整', 16);
-		changersText.setFormat(Paths.font('vcr.ttf'), 16, MD3Theme.primary);
-		changersText.scrollFactor.set();
+		// ⚙ 玩法调整(左下角按钮: 流速/回血量/Botplay/练习模式等)
+		changersBtn = new FlxSprite(36, FlxG.height - 70);
+		changersBtn.pixels = MD3Rounded.createBitmap(190, 44, 12);
+		changersBtn.color = MD3Theme.surfaceContainerHigh;
+		add(changersBtn);
+		changersIcon = new FlxSprite(changersBtn.x + 12, changersBtn.y + 8);
+		changersIcon.pixels = MD3Rounded.createIconSliders(28, 3);
+		changersIcon.color = 0xFFFFFFFF;
+		add(changersIcon);
+		changersText = new FlxText(changersBtn.x + 48, changersBtn.y + 12, 0, '玩法调整', 16);
+		changersText.setFormat(Paths.font('vcr.ttf'), 16, MD3Theme.onSurface);
 		add(changersText);
 
 		player = new MusicPlayer(this);
@@ -342,10 +351,7 @@ class FreeplayState extends MusicBeatState
 			else if (hitBtn(touch, listenBtn)) toggleListen();
 			else if (hitBtn(touch, resetBtn) && !player.playingMusic) openResetScore();
 			else if (hitBtn(touch, playBtn) && !player.playingMusic) startSong();
-			else if (changersText != null
-				&& touch.x >= changersText.x - 12 && touch.x <= changersText.x + changersText.width + 12
-				&& touch.y >= changersText.y - 12 && touch.y <= changersText.y + changersText.height + 12
-				&& !player.playingMusic) openChangers();
+			else if (hitBtn(touch, changersBtn) && !player.playingMusic) openChangers();
 		}
 	}
 
