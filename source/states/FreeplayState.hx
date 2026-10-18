@@ -64,6 +64,7 @@ class FreeplayState extends MusicBeatState
 	var listenBtn:FlxSprite;
 	var resetBtn:FlxSprite;
 	var playBtn:FlxSprite;
+	var panelCard:FlxSprite;
 
 	var changersText:FlxText;
 	var panelExtras:Array<FlxText> = [];	// 面板伴生文字(随面板显隐)
@@ -173,7 +174,7 @@ class FreeplayState extends MusicBeatState
 		WeekData.setDirectoryFromWeek();
 
 		// ===== 右侧详情面板 =====
-		var panelCard:FlxSprite = new FlxSprite(panelX, panelY);
+		panelCard = new FlxSprite(panelX, panelY);
 		panelCard.pixels = MD3Rounded.createBitmap(panelW, 584, 22);
 		panelCard.color = MD3Theme.surfaceContainer;
 		panelCard.alpha = 0.9;
