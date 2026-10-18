@@ -51,6 +51,8 @@ class OptionsState extends MusicBeatState
 	var catTexts:FlxTypedGroup<FlxText>;
 	var grpOptions:FlxTypedGroup<OptionNameText>;
 	var grpCards:FlxTypedGroup<FlxSprite>;
+	// 开关/滑条/值文字统一容器: 切分区时整组清空, 防止上一分区的控件残留屏幕
+	var grpWidgets:FlxTypedGroup<FlxSprite>;
 	var optionCards:Array<FlxSprite> = [];
 	var switches:Array<MD3Switch> = [];
 	var sliders:Array<MD3Slider> = [];
@@ -128,6 +130,8 @@ class OptionsState extends MusicBeatState
 		add(grpCards);
 		grpOptions = new FlxTypedGroup<OptionNameText>();
 		add(grpOptions);
+		grpWidgets = new FlxTypedGroup<FlxSprite>();
+		add(grpWidgets);
 
 		// 说明框(右面板底部)
 		descBox = new FlxSprite().makeGraphic(1, 1, MD3Theme.surfaceContainerHigh);
@@ -396,9 +400,11 @@ class OptionsState extends MusicBeatState
 
 		grpOptions.clear();
 		grpCards.clear();
-		switches = [];
-		sliders = [];
-		valueTexts = [];
+		grpWidgets.clear(); // 上一分区的开关/滑条/值文字整组移除
+		// 控件数组按选项下标对齐, 类型不符的格子留 null(修复控件串行错位)
+		switches = [for (i in 0...optionsArray.length) null];
+		sliders = [for (i in 0...optionsArray.length) null];
+		valueTexts = [for (i in 0...optionsArray.length) null];
 		optionCards = [];
 		rightTitle.text = cat;
 
@@ -427,8 +433,8 @@ class OptionsState extends MusicBeatState
 					updateTextFrom(opt);
 					ClientPrefs.saveSettings();
 				});
-				switches.push(sw);
-				add(sw);
+				switches[i] = sw;
+				grpWidgets.add(sw);
 			}
 			else if(opt.type == 'int' || opt.type == 'float' || opt.type == 'percent')
 			{
@@ -439,19 +445,19 @@ class OptionsState extends MusicBeatState
 					updateTextFrom(opt);
 					ClientPrefs.saveSettings();
 				};
-				sliders.push(sl);
-				add(sl);
+				sliders[i] = sl;
+				grpWidgets.add(sl);
 				var vTxt = new FlxText(widgetRight - 130, 0, 110, "", 18);
 				vTxt.setFormat(Paths.font("vcr.ttf"), 18, MD3Theme.onSurfaceVariant, flixel.text.FlxTextAlign.RIGHT);
-				valueTexts.push(vTxt);
-				add(vTxt);
+				valueTexts[i] = vTxt;
+				grpWidgets.add(vTxt);
 			}
 			else
 			{
 				var vTxt = new FlxText(widgetRight - 220, 0, 210, "", 18);
 				vTxt.setFormat(Paths.font("vcr.ttf"), 18, MD3Theme.onSurfaceVariant, flixel.text.FlxTextAlign.RIGHT);
-				valueTexts.push(vTxt);
-				add(vTxt);
+				valueTexts[i] = vTxt;
+				grpWidgets.add(vTxt);
 			}
 			updateTextFrom(opt);
 		}
