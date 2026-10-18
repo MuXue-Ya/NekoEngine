@@ -142,7 +142,9 @@ class MainMenuState extends MusicBeatState
 			add(icon);
 			icons.push(icon);
 
-			var nameT:FlxText = new FlxText(listX + 70, cy + (cardH - 26) / 2, 0, optionNames.get(optionShit[i], optionShit[i]), 22);
+			var nameStr:String = optionNames.get(optionShit[i]);
+			if (nameStr == null) nameStr = optionShit[i];
+			var nameT:FlxText = new FlxText(listX + 70, cy + (cardH - 26) / 2, 0, nameStr, 22);
 			nameT.setFormat(Paths.font('vcr.ttf'), 22, MD3Theme.onSurface);
 			add(nameT);
 			nameTexts.push(nameT);
@@ -267,10 +269,10 @@ class MainMenuState extends MusicBeatState
 	function fadeRow(i:Int, targetAlpha:Float):Void
 	{
 		// 先杀掉入场动画的补间, 避免两个补间拉扯同一属性
-		FlxTween.killTweensOf(cards[i]);
-		FlxTween.killTweensOf(iconBases[i]);
-		FlxTween.killTweensOf(icons[i]);
-		FlxTween.killTweensOf(nameTexts[i]);
+		FlxTween.cancelTweensOf(cards[i]);
+		FlxTween.cancelTweensOf(iconBases[i]);
+		FlxTween.cancelTweensOf(icons[i]);
+		FlxTween.cancelTweensOf(nameTexts[i]);
 		FlxTween.tween(cards[i], {alpha: targetAlpha}, 0.25, {ease: FlxEase.quadOut});
 		FlxTween.tween(iconBases[i], {alpha: targetAlpha}, 0.25);
 		FlxTween.tween(icons[i], {alpha: targetAlpha}, 0.25);
