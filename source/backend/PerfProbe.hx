@@ -103,11 +103,18 @@ class PerfProbe
 			var sec:Float = (now - secStartMs) / 1000;
 			var updAvg:Float = updSum / Math.max(1, secFrames);
 			var drawAvg:Float = drawSum / Math.max(1, secFrames);
+			var memLine:String = '';
+			#if cpp
+			// 内存分解: 实用(真数据) / 堆总量(实用+空闲+垃圾), 差值即 GC 策略的代价
+			var usageMB:Float = Math.round(cpp.vm.Gc.memInfo64(cpp.vm.Gc.MEM_INFO_USAGE) / 104857.6) / 10;
+			var rsvMB:Float = Math.round(cpp.vm.Gc.memInfo64(cpp.vm.Gc.MEM_INFO_RESERVED) / 104857.6) / 10;
+			memLine = ' mem=' + usageMB + '/' + rsvMB + 'MB';
+			#end
 			push('[' + fmt(now) + '] ' + curStateName()
 				+ ' fps=' + Math.round(secFrames / sec)
 				+ ' upd=' + r1(updAvg) + 'ms(峰' + r1(updMax) + ')'
 				+ ' draw=' + r1(drawAvg) + 'ms(峰' + r1(drawMax) + ')'
-				+ ' GC=' + gcSec + '次');
+				+ ' GC=' + gcSec + '次' + memLine);
 			secFrames = 0; updSum = 0; updMax = 0; drawSum = 0; drawMax = 0;
 			gcSec = 0; spikeSec = 0;
 			secStartMs = now;

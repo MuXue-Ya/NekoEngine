@@ -57,10 +57,10 @@ class Main extends Sprite
 		super();
 
 		#if cpp
-		// GC 调优: 让 GC 保留 30% 空闲堆(默认约12.5%), 降低回收频率, 用少量内存换流畅
-		cpp.vm.Gc.setTargetFreeSpacePercentage(30);
-		// 最小空闲堆 16MB: 攒够更多垃圾才回收一次, 大幅减少回收次数(一首歌从数百次降到两位数)
-		cpp.vm.Gc.setMinimumFreeSpace(16 * 1024 * 1024);
+		// GC 调优(内存与流畅的折中): 20% 空闲堆 + 最小 8MB 空闲
+		// 调大 = 回收更少更轻但内存更高; 调小 = 接近原版80MB但回收频繁
+		cpp.vm.Gc.setTargetFreeSpacePercentage(20);
+		cpp.vm.Gc.setMinimumFreeSpace(8 * 1024 * 1024);
 		#end
 
         #if mobile
