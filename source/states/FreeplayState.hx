@@ -66,6 +66,7 @@ class FreeplayState extends MusicBeatState
 	var playBtn:FlxSprite;
 
 	var changersText:FlxText;
+	var panelExtras:Array<FlxText> = [];	// 面板伴生文字(随面板显隐)
 	var lerpScore:Int = 0;
 	var lerpRating:Float = 0;
 	var intendedScore:Int = 0;
@@ -158,7 +159,7 @@ class FreeplayState extends MusicBeatState
 
 			var nameT:FlxText = new FlxText(listX + 56, cy + 15, 0, songs[i].songName, 20);
 			nameT.setFormat(Paths.font('vcr.ttf'), 20, MD3Theme.onSurface);
-			nameT.scaleX = Math.min(1, 558 / Math.max(1, nameT.width));	// 超宽歌名压缩(原版行为)
+			nameT.scale.set(Math.min(1, 558 / Math.max(1, nameT.width)), 1);	// 超宽歌名压缩(原版行为)
 			nameT.visible = nameT.active = false;
 			add(nameT);
 			nameTexts.push(nameT);
@@ -201,6 +202,7 @@ class FreeplayState extends MusicBeatState
 		diffLText.setFormat(Paths.font('vcr.ttf'), 22, MD3Theme.onPrimaryContainer, CENTER);
 		diffLText.setPosition(diffLBtn.x + (44 - diffLText.width) / 2, diffLBtn.y + 10);
 		add(diffLText);
+		panelExtras.push(diffLText);
 
 		diffRBtn = new FlxSprite(panelX + panelW - 92, panelY + 180);
 		diffRBtn.pixels = MD3Rounded.createBitmap(44, 44, 12);
@@ -210,6 +212,7 @@ class FreeplayState extends MusicBeatState
 		diffRText.setFormat(Paths.font('vcr.ttf'), 22, MD3Theme.onPrimaryContainer, CENTER);
 		diffRText.setPosition(diffRBtn.x + (44 - diffRText.width) / 2, diffRBtn.y + 10);
 		add(diffRText);
+		panelExtras.push(diffRText);
 
 		diffNameText = new FlxText(panelX + 100, panelY + 190, panelW - 200, '', 20);
 		diffNameText.setFormat(Paths.font('vcr.ttf'), 20, MD3Theme.onSurface, CENTER);
@@ -218,6 +221,7 @@ class FreeplayState extends MusicBeatState
 		var bestLabel:FlxText = new FlxText(panelX + 16, panelY + 252, panelW - 32, '个人最佳', 14);
 		bestLabel.setFormat(Paths.font('vcr.ttf'), 14, MD3Theme.onSurfaceVariant, CENTER);
 		add(bestLabel);
+		panelExtras.push(bestLabel);
 
 		bestValueText = new FlxText(panelX + 16, panelY + 274, panelW - 32, '0', 26);
 		bestValueText.setFormat(Paths.font('vcr.ttf'), 26, MD3Theme.onSurface, CENTER);
@@ -236,6 +240,7 @@ class FreeplayState extends MusicBeatState
 		listenText.setFormat(Paths.font('vcr.ttf'), 18, MD3Theme.onSurface, CENTER);
 		listenText.setPosition(listenBtn.x + (listenBtn.width - listenText.width) / 2, listenBtn.y + 12);
 		add(listenText);
+		panelExtras.push(listenText);
 
 		resetBtn = new FlxSprite(panelX + 32 + (panelW - 48) / 2, panelY + 344);
 		resetBtn.pixels = MD3Rounded.createBitmap((panelW - 48) / 2, 44, 12);
@@ -245,6 +250,7 @@ class FreeplayState extends MusicBeatState
 		resetText.setFormat(Paths.font('vcr.ttf'), 18, MD3Theme.onSurface, CENTER);
 		resetText.setPosition(resetBtn.x + (resetBtn.width - resetText.width) / 2, resetBtn.y + 12);
 		add(resetText);
+		panelExtras.push(resetText);
 
 		// ▶ 开始大按钮
 		playBtn = new FlxSprite(panelX + 16, panelY + 504);
@@ -255,6 +261,7 @@ class FreeplayState extends MusicBeatState
 		playText.setFormat(Paths.font('vcr.ttf'), 24, MD3Theme.onPrimary, CENTER);
 		playText.setPosition(playBtn.x + (playBtn.width - playText.width) / 2, playBtn.y + 18);
 		add(playText);
+		panelExtras.push(playText);
 
 		// 缺文件提示(保留)
 		missingTextBG = new FlxSprite().makeGraphic(FlxG.width, FlxG.height, FlxColor.BLACK);
@@ -534,6 +541,24 @@ class FreeplayState extends MusicBeatState
 	inline private function _updateSongLastDifficulty()
 	{
 		songs[curSelected].lastDifficulty = Difficulty.getString(curDifficulty);
+	}
+
+	public function setDetailPanelVisible(v:Bool):Void
+	{
+		panelCard.visible = v;
+		iconBig.visible = v;
+		songNameText.visible = v;
+		charNameText.visible = v;
+		diffLBtn.visible = v;
+		diffRBtn.visible = v;
+		diffNameText.visible = v;
+		bestValueText.visible = v;
+		ratingText.visible = v;
+		listenBtn.visible = v;
+		resetBtn.visible = v;
+		playBtn.visible = v;
+		for (t in panelExtras)
+			t.visible = v;
 	}
 
 	function refreshDetail():Void
