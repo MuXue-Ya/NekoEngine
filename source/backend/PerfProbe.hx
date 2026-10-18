@@ -192,7 +192,7 @@ class PerfProbe
 		return '' + (Math.round(v * 10) / 10);
 	}
 
-	inline function curStateName():String
+	static inline function curStateName():String
 	{
 		var n:String = Type.getClassName(Type.getClass(FlxG.state));
 		var name:String = (n != null) ? n.substr(n.lastIndexOf('.') + 1) : 'null';
