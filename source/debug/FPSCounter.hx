@@ -33,7 +33,7 @@ class FPSCounter extends Sprite
 	var verText:TextField;	// 引擎名+版本
 	var fpsText:TextField;	// 帧数
 	var memText:TextField;	// 内存
-	var gcText:TextField;	// GC 回收次数
+	var gcText:TextField;	// GC 堆占用
 	var fpsBD:BitmapData;	// 帧数曲线
 	var memBD:BitmapData;	// 内存曲线
 	var gcBD:BitmapData;	// GC 曲线(每次回收的回收量)
@@ -41,9 +41,7 @@ class FPSCounter extends Sprite
 
 	var times:Array<Float>;
 	var memMax:Float = 1;	// 内存曲线的动态最大值
-	var gcCount:Int = 0;		// 累计检测到的回收次数
 	var lastGcMem:Float = 0;	// 上一帧的 GC 当前堆内存
-	var lastGcShown:Int = 0;	// 文字上次显示时的次数(用于高亮)
 
 	var _rect:Rectangle = new Rectangle();	// 复用的矩形, 避免每帧分配
 	var textCooldown:Float = 0;	// 文字降频刷新计时
@@ -109,7 +107,7 @@ class FPSCounter extends Sprite
 		addChild(memText);
 
 		gcText = mkText(fmt);
-		gcText.text = 'GC: 0 次';
+		gcText.text = 'GC: 0 MB';
 		gcText.y = yGc;
 		addChild(gcText);
 
@@ -175,9 +173,8 @@ class FPSCounter extends Sprite
 		memText.text = 'Memory: ${flixel.util.FlxStringUtil.formatBytes(memoryMegas)}';
 		memText.textColor = baseColor;
 
-		gcText.text = 'GC: $gcCount 次';
-		gcText.textColor = (gcCount > lastGcShown) ? 0xFFFFBB55 : baseColor;
-		lastGcShown = gcCount;
+		gcText.text = 'GC: ' + (Math.round(getGcCurrent() / 104857.6) / 10) + ' MB';	// GC堆当前占用
+		gcText.textColor = baseColor;
 	}
 
 	dynamic function updateGraphs():Void {
@@ -208,7 +205,10 @@ class FPSCounter extends Sprite
 		var curMem:Float = getGcCurrent();
 		var drop:Float = lastGcMem - curMem;
 		lastGcMem = curMem;
-		if (drop >= 2 * 1024 * 1024) gcCount++;
+		if (drop >= 2 * 1024 * 1024)
+		{
+			backend.PerfProbe.onGc(drop);	// 探测点: 记录GC事件+当帧耗时
+		}
 		_rect.y = 0; _rect.height = GRAPH_H;
 		gcBD.scroll(-1, 0);
 		gcBD.fillRect(_rect, 0x00000000);
