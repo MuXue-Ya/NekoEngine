@@ -76,10 +76,17 @@ class Main extends Sprite
 			PopUp.showAlert("Storage Error", "Cannot access storage. Please grant permission and restart the game.", "OK");
 			lime.system.System.exit(0);
 		}
-		FlxG.signals.preUpdate.add(function() 
+		FlxG.signals.preUpdate.add(function()
 		{
 			MobileUtil.updateInputMethod();
 		});
+
+		// 性能探测点: 更新/绘制分段计时 + 尖帧/GC/状态切换调试日志
+		backend.PerfProbe.init();
+		FlxG.signals.preUpdate.add(function() { backend.PerfProbe.onPreUpdate(); });
+		FlxG.signals.postUpdate.add(function() { backend.PerfProbe.onPostUpdate(); });
+		FlxG.signals.preDraw.add(function() { backend.PerfProbe.onPreDraw(); });
+		FlxG.signals.postDraw.add(function() { backend.PerfProbe.onPostDraw(); });
 		#end
 
 		if (stage != null)
