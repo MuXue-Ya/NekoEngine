@@ -6,6 +6,9 @@ import flixel.group.FlxGroup.FlxTypedGroup;
 import flixel.math.FlxMath;
 import flixel.text.FlxText;
 import flixel.util.FlxColor;
+import backend.StageData;
+import states.LoadingState;
+import states.PlayState;
 import states.MainMenuState;
 import ui.md3.MD3Switch;
 import ui.md3.MD3Slider;
@@ -740,9 +743,18 @@ class OptionsState extends MusicBeatState
 	function goBack():Void
 	{
 		ClientPrefs.saveSettings();
-		if (changedMusic && !onPlayState) FlxG.sound.playMusic(Paths.music('freakyMenu'), 1, true);
 		FlxG.sound.play(Paths.sound('cancelMenu'));
-		MusicBeatState.switchState(new MainMenuState());
+		if (onPlayState)
+		{
+			// 从暂停页打开的设置: PlayState 已被销毁, 返回 = 重新开始这首歌(与原版一致)
+			StageData.loadDirectory(PlayState.SONG);
+			LoadingState.loadAndSwitchState(new PlayState());
+			FlxG.sound.music.volume = 0;	// 静音设置页残留的暂停音乐, 等 PlayState 自己开曲
+		}
+		else
+		{
+			MusicBeatState.switchState(new MainMenuState());	// 音乐恢复由 destroy() 处理
+		}
 	}
 
 	#if mobile
