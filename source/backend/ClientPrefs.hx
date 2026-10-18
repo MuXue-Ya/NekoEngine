@@ -22,6 +22,7 @@ import states.TitleState;
 	public var shaders:Bool = true;
 	public var cacheOnGPU:Bool = #if !switch false #else true #end; //From Stilic
 	public var framerate:Int = 60;
+	public var frameCompensation:Bool = true;	// 帧数补偿: 掉帧时按真实时间推进, 画面卡但不慢放
 	public var camZooms:Bool = true;
 	public var hideHud:Bool = false;
 	public var noteOffset:Int = 0;
@@ -206,6 +207,9 @@ class ClientPrefs {
 			FlxG.drawFramerate = data.framerate;
 			FlxG.updateFramerate = data.framerate;
 		}
+
+		// 帧数补偿: 开=可变时间步(掉帧不慢放), 关=引擎默认固定步长(CPU跟不上会丢时间变成慢动作)
+		FlxG.fixedTimestep = !data.frameCompensation;
 
 		if(FlxG.save.data.gameplaySettings != null)
 		{

@@ -332,6 +332,10 @@ class OptionsState extends MusicBeatState
 		var option:Option = new Option('GPU 缓存', "开启后用GPU缓存纹理，降低内存占用。\n显卡不行的话别开。", 'cacheOnGPU', 'bool');
 		addOption(option);
 
+		var option:Option = new Option('帧数补偿', '开启后掉帧时游戏保持正常速度，\n画面可能更卡但不会慢放。', 'frameCompensation', 'bool');
+		option.onChange = onChangeFrameCompensation;
+		addOption(option);
+
 		#if !html5
 		var option:Option = new Option('帧率上限', "顾名思义，不用多说了吧。", 'framerate', 'int');
 		addOption(option);
@@ -359,6 +363,12 @@ class OptionsState extends MusicBeatState
 	{
 		FlxG.drawFramerate = ClientPrefs.data.framerate;
 		FlxG.updateFramerate = ClientPrefs.data.framerate;
+	}
+
+	function onChangeFrameCompensation()
+	{
+		// 开=可变时间步(掉帧不慢放), 关=引擎默认固定步长
+		FlxG.fixedTimestep = !ClientPrefs.data.frameCompensation;
 	}
 
 	function onChangeAntiAliasing()
