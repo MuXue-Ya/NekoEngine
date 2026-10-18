@@ -204,10 +204,11 @@ class FPSCounter extends Sprite
 
 		// ===== GC 回收曲线 =====
 		// hxcpp 没有暂停耗时接口, 用"当前堆内存显著下降"来判定发生了一次回收
+		// 阈值 2MB: 剔除小碎片波动, 只统计真正的回收
 		var curMem:Float = getGcCurrent();
 		var drop:Float = lastGcMem - curMem;
 		lastGcMem = curMem;
-		if (drop >= 512 * 1024) gcCount++;
+		if (drop >= 2 * 1024 * 1024) gcCount++;
 		_rect.y = 0; _rect.height = GRAPH_H;
 		gcBD.scroll(-1, 0);
 		gcBD.fillRect(_rect, 0x00000000);
