@@ -55,7 +55,12 @@ class Main extends Sprite
 	public function new()
 	{
 		super();
-		
+
+		#if cpp
+		// GC 调优: 让 GC 保留 30% 空闲堆(默认约12.5%), 降低回收频率, 用少量内存换流畅
+		cpp.vm.Gc.setTargetFreeSpacePercentage(30);
+		#end
+
         #if mobile
 		StorageSystem.getPermissions();
 		var __dataDir:String = StorageSystem.getDirectory();

@@ -31,10 +31,14 @@ class MobileUtil {
 	 */
 	public static function updateInputMethod():Void 
 	{
-		if (FlxG.touches.justStarted().length > 0) 
+		// 零分配扫描: 旧写法 justStarted() 每帧新建数组, 持续制造 GC 压力
+		for (touch in FlxG.touches.list)
 		{
-			isTouchActive = true;
-			return; 
+			if (touch.justStarted)
+			{
+				isTouchActive = true;
+				return;
+			}
 		}
 
 		if (FlxG.keys.justPressed.ANY) 
