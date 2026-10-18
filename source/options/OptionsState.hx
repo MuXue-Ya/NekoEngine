@@ -630,7 +630,12 @@ class OptionsState extends MusicBeatState
 				valueTexts[i].x = widgetRight - 200;
 				valueTexts[i].y = row.y + 14;
 				valueTexts[i].visible = row.visible;
-				valueTexts[i].text = opt.text;
+				// Option.text 是转发给 child(原版AttachedText)的代理, 本界面没有 child 会返回 null
+				// 所以直接按 displayFormat 现算: %v=当前值 %d=默认值, percent 自动 x100
+				var disp:String = opt.displayFormat;
+				var val:Dynamic = opt.getValue();
+				if (opt.type == 'percent') val = FlxMath.roundDecimal(val * 100, opt.decimals);
+				valueTexts[i].text = disp.replace('%v', Std.string(val)).replace('%d', Std.string(opt.defaultValue));
 				valueTexts[i].alpha = (i == curSelected) ? 1 : 0.6;
 			}
 		}
