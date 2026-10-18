@@ -41,6 +41,7 @@ class FPSCounter extends Sprite
 
 	var times:Array<Float>;
 	var memMax:Float = 1;	// 内存曲线的动态最大值
+	var gcMax:Float = 1;	// GC占用曲线的动态最大值
 	var lastGcMem:Float = 0;	// 上一帧的 GC 当前堆内存
 
 	var _rect:Rectangle = new Rectangle();	// 复用的矩形, 避免每帧分配
@@ -199,9 +200,9 @@ class FPSCounter extends Sprite
 		_rect.y = GRAPH_H - memH; _rect.height = memH;
 		memBD.fillRect(_rect, 0xFF55CCFF);
 
-		// ===== GC 回收曲线 =====
-		// hxcpp 没有暂停耗时接口, 用"当前堆内存显著下降"来判定发生了一次回收
-		// 阈值 2MB: 剔除小碎片波动, 只统计真正的回收
+		// ===== GC 堆占用曲线 =====
+		// 占用趋势(锯齿: 上升=垃圾积累, 陡降=发生回收), 动态量程
+		// hxcpp 没有暂停耗时接口, 回收判定用"堆内存显著下降"(阈值2MB), 事件走日志
 		var curMem:Float = getGcCurrent();
 		var drop:Float = lastGcMem - curMem;
 		lastGcMem = curMem;
@@ -209,18 +210,14 @@ class FPSCounter extends Sprite
 		{
 			backend.PerfProbe.onGc(drop);	// 探测点: 记录GC事件+当帧耗时
 		}
+		gcMax = Math.max(curMem, gcMax * 0.9985);
+		if (gcMax < 1) gcMax = 1;
 		_rect.y = 0; _rect.height = GRAPH_H;
 		gcBD.scroll(-1, 0);
 		gcBD.fillRect(_rect, 0x00000000);
-		if (drop > 0)
-		{
-			var gcH:Int = Std.int(Math.min(1.0, drop / (4 * 1024 * 1024)) * GRAPH_H);	// 4MB 回收量=满格
-			if (gcH > 0)
-			{
-				_rect.y = GRAPH_H - gcH; _rect.height = gcH;
-				gcBD.fillRect(_rect, 0xFFFFBB55);
-			}
-		}
+		var gcH:Int = Std.int(Math.max(1, Math.min(1.0, curMem / gcMax) * GRAPH_H));
+		_rect.y = GRAPH_H - gcH; _rect.height = gcH;
+		gcBD.fillRect(_rect, 0xFFFFBB55);
 	}
 
 	// GC 当前堆内存(含未回收垃圾, 锯齿波动); 非cpp目标退化为总内存
