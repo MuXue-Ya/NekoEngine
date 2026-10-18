@@ -249,8 +249,8 @@ class FlxTypedTouch<T:FlxSprite> extends FlxSprite implements IFlxInput
 		{
 			currentInput = null;
 		}
-		// 矩形命中(原为像素级采样): 更快, 且按钮边角也能按到, 触控更灵敏
-		else if (overlapsPoint(pointer.getWorldPosition(camera, _point), false, camera))
+		// 第二参数是 inScreenSpace(按屏幕坐标判定, 正确处理相机滚动), 必须保持 true
+		else if (overlapsPoint(pointer.getWorldPosition(camera, _point), true, camera))
 		{
 			updateStatus(input);
 			return true;
