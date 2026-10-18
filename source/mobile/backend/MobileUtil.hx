@@ -34,7 +34,7 @@ class MobileUtil {
 		// 零分配扫描: 旧写法 justStarted() 每帧新建数组, 持续制造 GC 压力
 		for (touch in FlxG.touches.list)
 		{
-			if (touch.justStarted)
+			if (touch.justPressed)	// flixel5 触点刚开始 = justPressed
 			{
 				isTouchActive = true;
 				return;
