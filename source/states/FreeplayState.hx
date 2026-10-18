@@ -65,6 +65,7 @@ class FreeplayState extends MusicBeatState
 	var resetBtn:FlxSprite;
 	var playBtn:FlxSprite;
 	var panelCard:FlxSprite;
+	var listenText:FlxText;
 
 	var changersText:FlxText;
 	var panelExtras:Array<FlxText> = [];	// 面板伴生文字(随面板显隐)
@@ -249,7 +250,7 @@ class FreeplayState extends MusicBeatState
 		listenBtn.pixels = MD3Rounded.createBitmap((panelW - 48) / 2, 44, 12);
 		listenBtn.color = MD3Theme.surfaceContainerHigh;
 		add(listenBtn);
-		var listenText:FlxText = new FlxText(0, 0, 0, '试听', 18);
+		listenText = new FlxText(0, 0, 0, '试听', 18);
 		listenText.setFormat(Paths.font('vcr.ttf'), 18, MD3Theme.onSurface, CENTER);
 		listenText.setPosition(listenBtn.x + (listenBtn.width - listenText.width) / 2, listenBtn.y + 12);
 		add(listenText);
