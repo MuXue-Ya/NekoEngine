@@ -44,8 +44,10 @@ class MD3Switch extends FlxSpriteGroup
 
 	override function update(elapsed:Float)
 	{
-		var targetX:Float = on ? (TRACK_W - KNOB - 3) : 3;
+		// 组内子精灵坐标是绝对坐标(add时已偏移), 目标位置必须加上组偏移, 否则会被画到屏幕最左边
+		var targetX:Float = x + (on ? (TRACK_W - KNOB - 3) : 3);
 		knob.x = flixel.math.FlxMath.lerp(targetX, knob.x, Math.exp(-elapsed * 16));
+		knob.y = y + 3;
 		super.update(elapsed);
 	}
 

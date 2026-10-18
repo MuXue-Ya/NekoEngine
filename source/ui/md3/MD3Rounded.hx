@@ -25,4 +25,29 @@ class MD3Rounded
 		bd.draw(shape, null, null, null, null, true);
 		return bd;
 	}
+
+	/**
+	 * 自绘返回箭头(白色线条, 用 FlxSprite.color 染色)。
+	 * size = 画布边长, thickness = 线条粗细。
+	 */
+	public static function createBackArrow(size:Int, thickness:Int):openfl.display.BitmapData
+	{
+		if (size < 8) size = 8;
+		if (thickness < 1) thickness = 1;
+		var bd = new openfl.display.BitmapData(size, size, true, 0x00000000);
+		var shape = new openfl.display.Shape();
+		var c:Float = size / 2;
+		var x0:Float = c - size * 0.16;  // 箭尖
+		var x1:Float = c + size * 0.18;  // 尾部
+		var head:Float = size * 0.14;    // 箭头翼展
+		shape.graphics.lineStyle(thickness, 0xFFFFFF, 1);
+		shape.graphics.moveTo(x1, c);
+		shape.graphics.lineTo(x0, c);
+		shape.graphics.moveTo(x0 + head, c - head);
+		shape.graphics.lineTo(x0, c);
+		shape.graphics.lineTo(x0 + head, c + head);
+		shape.graphics.endFill();
+		bd.draw(shape, null, null, null, null, true);
+		return bd;
+	}
 }

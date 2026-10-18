@@ -57,8 +57,9 @@ class MD3Slider extends FlxSpriteGroup
 		if (frac < 0) frac = 0;
 		if (frac > 1) frac = 1;
 		fill.clipRect = flixel.math.FlxRect.get(0, 0, trackW * frac, 10);
-		knob.x = trackW * frac - 12;
-		knob.y = 5 - 12;
+		// 组内子精灵坐标是绝对坐标(add时已偏移), 手柄位置必须加上组偏移, 否则会被画到屏幕最左边
+		knob.x = x + trackW * frac - 12;
+		knob.y = y + 5 - 12;
 	}
 
 	override function update(elapsed:Float)

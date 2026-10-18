@@ -42,7 +42,7 @@ class OptionsState extends MusicBeatState
 	var rightX:Float = 330;
 	var rowsStartY:Float = 150;
 	var rowSpacing:Float = 56;
-	var visibleRows:Int = 6;
+	var visibleRows:Int = 7;
 
 	// ===== UI =====
 	var bg:FlxSprite;
@@ -58,6 +58,12 @@ class OptionsState extends MusicBeatState
 	var rightTitle:FlxText;
 	var descText:FlxText;
 	var descBox:FlxSprite;
+
+	// 右上角自绘返回按钮
+	var backBtn:FlxSprite;
+	var backIcon:FlxSprite;
+	var backPressId:Int = -1;
+	var backPressed:Bool = false;
 
 	var changedMusic:Bool = false;
 	var touchAcceptFlag:Bool = false;
@@ -131,9 +137,15 @@ class OptionsState extends MusicBeatState
 		descText.setFormat(Paths.font("vcr.ttf"), 20, MD3Theme.onSurfaceVariant, flixel.text.FlxTextAlign.LEFT);
 		add(descText);
 
-		#if mobile
-		addVirtualPad('UP_DOWN', 'A_B_C');
-		#end
+		// 右上角自绘返回按钮(不用虚拟按键)
+		backBtn = new FlxSprite(FlxG.width - 36 - 48, 18);
+		backBtn.pixels = MD3Rounded.createBitmap(48, 48, 24);
+		backBtn.color = MD3Theme.surfaceContainerHigh;
+		add(backBtn);
+		backIcon = new FlxSprite(backBtn.x, backBtn.y);
+		backIcon.pixels = MD3Rounded.createBackArrow(48, 3);
+		backIcon.color = MD3Theme.onSurface;
+		add(backIcon);
 
 		switchCategory(0);
 		ClientPrefs.saveSettings();
@@ -575,7 +587,8 @@ class OptionsState extends MusicBeatState
 			var rowY:Float = rowsStartY + row.targetY * rowSpacing;
 			row.y = FlxMath.lerp(rowY, row.y, Math.exp(-elapsed * 12));
 			row.x = rightX + 66;
-			row.visible = (rowY >= panelY + 52 && rowY <= panelY + panelH - 132);
+			// 卡片高48, 底边不得越过说明框顶部, 避免盖住最后一行
+			row.visible = (rowY >= panelY + 52 && rowY + 48 <= panelY + panelH - 132);
 			if (optionCards[i] != null)
 			{
 				optionCards[i].x = rightX + 24;
@@ -639,6 +652,7 @@ class OptionsState extends MusicBeatState
 			}
 		);
 		handleCategoryTouch();
+		handleBackTouch();
 		#end
 
 		// ===== 键盘/手柄 =====
@@ -679,13 +693,57 @@ class OptionsState extends MusicBeatState
 		}
 		if (nextAccept > 0) nextAccept -= 1;
 
-		if (controls.BACK)
-		{
-			ClientPrefs.saveSettings();
-			if (changedMusic && !onPlayState) FlxG.sound.playMusic(Paths.music('freakyMenu'), 1, true);
-			MusicBeatState.switchState(new MainMenuState());
-		}
+		if (controls.BACK) goBack();
 	}
+
+	// ==================== 返回按钮 ====================
+
+	function goBack():Void
+	{
+		ClientPrefs.saveSettings();
+		if (changedMusic && !onPlayState) FlxG.sound.playMusic(Paths.music('freakyMenu'), 1, true);
+		FlxG.sound.play(Paths.sound('cancelMenu'));
+		MusicBeatState.switchState(new MainMenuState());
+	}
+
+	#if mobile
+	function overBack(tx:Float, ty:Float):Bool
+	{
+		return tx >= backBtn.x - 8 && tx <= backBtn.x + backBtn.width + 8
+			&& ty >= backBtn.y - 8 && ty <= backBtn.y + backBtn.height + 8;
+	}
+
+	function handleBackTouch():Void
+	{
+		for (touch in FlxG.touches.list)
+		{
+			if (touch.justPressed && overBack(touch.x, touch.y))
+			{
+				backPressId = touch.touchPointID;
+				backPressed = true;
+			}
+			else if (backPressId != -1 && touch.touchPointID == backPressId)
+			{
+				if (touch.pressed) backPressed = overBack(touch.x, touch.y);
+				if (touch.justReleased)
+				{
+					if (overBack(touch.x, touch.y)) goBack();
+					backPressId = -1;
+					backPressed = false;
+				}
+			}
+		}
+		if (backPressId != -1)
+		{
+			var still:Bool = false;
+			for (t in FlxG.touches.list)
+				if (t.touchPointID == backPressId && (t.pressed || t.justPressed)) { still = true; break; }
+			if (!still) { backPressId = -1; backPressed = false; }
+		}
+		backBtn.alpha = backPressed ? 0.7 : 1;
+		backIcon.alpha = backPressed ? 0.7 : 1;
+	}
+	#end
 
 	#if mobile
 	function handleCategoryTouch():Void
