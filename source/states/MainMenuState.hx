@@ -49,6 +49,8 @@ class MainMenuState extends MusicBeatState
 
 	var ears:FlxSprite;
 	var donateText:FlxText;
+	var editBtn:FlxSprite;
+	var editIcon:FlxSprite;
 
 	var selectedSomethin:Bool = false;
 
@@ -110,6 +112,16 @@ class MainMenuState extends MusicBeatState
 		donateText.setFormat(Paths.font('vcr.ttf'), 16, MD3Theme.primary);
 		donateText.scrollFactor.set();
 		add(donateText);
+
+		// 右上角自绘编辑器按钮(替代原虚拟按键C的入口)
+		editBtn = new FlxSprite(FlxG.width - 36 - 44, 18);
+		editBtn.pixels = MD3Rounded.createBitmap(44, 44, 22);
+		editBtn.color = MD3Theme.surfaceContainerHigh;
+		add(editBtn);
+		editIcon = new FlxSprite(editBtn.x + 8, editBtn.y + 8);
+		editIcon.pixels = MD3Rounded.createIconMod(28, 3);
+		editIcon.color = 0xFFFFFFFF;
+		add(editIcon);
 
 		// ===== 右侧入口卡片列表 =====
 		var listX:Float = 460;
@@ -179,9 +191,7 @@ class MainMenuState extends MusicBeatState
 		#end
 		#end
 
-		#if mobile
-		addVirtualPad('UP_DOWN', 'A_B_C');
-		#end
+		// 虚拟按键已移除: 主菜单全触控操作(触控/键盘均可)
 
 		super.create();
 	}
@@ -306,6 +316,7 @@ class MainMenuState extends MusicBeatState
 
 			#if mobile
 			handleDonateTouch();
+			handleEditTouch();
 			#end
 
 			if (controls.UI_UP_P)
@@ -324,7 +335,7 @@ class MainMenuState extends MusicBeatState
 			if (controls.ACCEPT)
 				acceptItem();
 
-			if (controls.justPressed('debug_1') #if mobile || virtualPad.getButton('buttonC').justPressed #end)
+			if (controls.justPressed('debug_1'))
 			{
 				selectedSomethin = true;
 				MusicBeatState.switchState(new MasterEditorMenu());
@@ -345,6 +356,20 @@ class MainMenuState extends MusicBeatState
 				&& touch.y >= donateText.y - 12 && touch.y <= donateText.y + donateText.height + 12)
 			{
 				CoolUtil.browserLoad('https://ninja-muffin24.itch.io/funkin');
+			}
+		}
+	}
+	function handleEditTouch():Void
+	{
+		if (editBtn == null) return;
+		for (touch in FlxG.touches.list)
+		{
+			if (touch.justPressed
+				&& touch.x >= editBtn.x - 8 && touch.x <= editBtn.x + editBtn.width + 8
+				&& touch.y >= editBtn.y - 8 && touch.y <= editBtn.y + editBtn.height + 8)
+			{
+				selectedSomethin = true;
+				MusicBeatState.switchState(new MasterEditorMenu());
 			}
 		}
 	}
