@@ -33,12 +33,17 @@ class FPSCounter extends Sprite
 	var verText:TextField;	// 引擎名+版本
 	var fpsText:TextField;	// 帧数
 	var memText:TextField;	// 内存
+	var gcText:TextField;	// GC 回收次数
 	var fpsBD:BitmapData;	// 帧数曲线
 	var memBD:BitmapData;	// 内存曲线
+	var gcBD:BitmapData;	// GC 曲线(每次回收的回收量)
 	var baseColor:Int;
 
 	var times:Array<Float>;
 	var memMax:Float = 1;	// 内存曲线的动态最大值
+	var gcCount:Int = 0;		// 累计检测到的回收次数
+	var lastGcMem:Float = 0;	// 上一帧的 GC 当前堆内存
+	var lastGcShown:Int = 0;	// 文字上次显示时的次数(用于高亮)
 
 	var _rect:Rectangle = new Rectangle();	// 复用的矩形, 避免每帧分配
 	var textCooldown:Float = 0;	// 文字降频刷新计时
@@ -65,6 +70,8 @@ class FPSCounter extends Sprite
 		var yFpsG:Float = yFps + lineH + GAP;
 		var yMem:Float = yFpsG + GRAPH_H + GAP;
 		var yMemG:Float = yMem + lineH + GAP;
+		var yGc:Float = yMemG + GRAPH_H + GAP;
+		var yGcG:Float = yGc + lineH + GAP;
 
 		// 曲线先加(垫底层)
 		fpsBD = new BitmapData(GRAPH_W, GRAPH_H, true, 0x00000000);
@@ -78,6 +85,12 @@ class FPSCounter extends Sprite
 		memGraph.x = 0;
 		memGraph.y = yMemG;
 		addChild(memGraph);
+
+		gcBD = new BitmapData(GRAPH_W, GRAPH_H, true, 0x00000000);
+		var gcGraph:Bitmap = new Bitmap(gcBD);
+		gcGraph.x = 0;
+		gcGraph.y = yGcG;
+		addChild(gcGraph);
 
 		// 文字后加(上层, 不会被曲线遮挡)
 		verText = mkText(fmt);
@@ -94,6 +107,13 @@ class FPSCounter extends Sprite
 		memText.text = 'Memory: 0 MB';
 		memText.y = yMem;
 		addChild(memText);
+
+		gcText = mkText(fmt);
+		gcText.text = 'GC: 0 次';
+		gcText.y = yGc;
+		addChild(gcText);
+
+		lastGcMem = getGcCurrent();
 
 		#if mobile
 		setScale();
@@ -154,6 +174,10 @@ class FPSCounter extends Sprite
 
 		memText.text = 'Memory: ${flixel.util.FlxStringUtil.formatBytes(memoryMegas)}';
 		memText.textColor = baseColor;
+
+		gcText.text = 'GC: $gcCount 次';
+		gcText.textColor = (gcCount > lastGcShown) ? 0xFFFFBB55 : baseColor;
+		lastGcShown = gcCount;
 	}
 
 	dynamic function updateGraphs():Void {
@@ -177,6 +201,35 @@ class FPSCounter extends Sprite
 		var memH:Int = Std.int(Math.max(1, Math.min(1.0, mem / memMax) * GRAPH_H));
 		_rect.y = GRAPH_H - memH; _rect.height = memH;
 		memBD.fillRect(_rect, 0xFF55CCFF);
+
+		// ===== GC 回收曲线 =====
+		// hxcpp 没有暂停耗时接口, 用"当前堆内存显著下降"来判定发生了一次回收
+		var curMem:Float = getGcCurrent();
+		var drop:Float = lastGcMem - curMem;
+		lastGcMem = curMem;
+		if (drop >= 512 * 1024) gcCount++;
+		_rect.y = 0; _rect.height = GRAPH_H;
+		gcBD.scroll(-1, 0);
+		gcBD.fillRect(_rect, 0x00000000);
+		if (drop > 0)
+		{
+			var gcH:Int = Std.int(Math.min(1.0, drop / (4 * 1024 * 1024)) * GRAPH_H);	// 4MB 回收量=满格
+			if (gcH > 0)
+			{
+				_rect.y = GRAPH_H - gcH; _rect.height = gcH;
+				gcBD.fillRect(_rect, 0xFFFFBB55);
+			}
+		}
+	}
+
+	// GC 当前堆内存(含未回收垃圾, 锯齿波动); 非cpp目标退化为总内存
+	inline function getGcCurrent():Float
+	{
+		#if cpp
+		return cpp.vm.Gc.memInfo64(cpp.vm.Gc.MEM_INFO_CURRENT);
+		#else
+		return memoryMegas;
+		#end
 	}
 
 	#if mobile
