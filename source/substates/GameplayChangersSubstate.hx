@@ -27,9 +27,15 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 
 	var backBtn:FlxSprite;
 	var resetBtn:FlxSprite;
-	var dragIdx:Int = -1;		// 正在拖动调整的行
-	var dragTouchId:Int = -1;
-	var dragLastX:Float = 0;
+	// 触控状态机: 0=无 1=待定 2=纵向导航(滑动换行) 3=横向调值(仅数值行)
+	var tId:Int = -1;
+	var tState:Int = 0;
+	var tRow:Int = -1;
+	var tStartX:Float = 0;
+	var tStartY:Float = 0;
+	var tLastX:Float = 0;
+	var tLastY:Float = 0;
+	var tNavY:Float = 0;
 
 	function getOptions()
 	{
@@ -280,82 +286,103 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 	#if mobile
 	function handleTouch():Void
 	{
-		// 拖动中: 数值行按住左右拖 = 连续调整(每30px一格)
-		if (dragIdx != -1)
+		// 结束检测(手指抬起/丢失)
+		if (tId != -1)
 		{
-			var opt:GameplayOption = optionsArray[dragIdx];
 			var still:Bool = false;
 			for (touch in FlxG.touches.list)
-			{
-				if (touch.touchPointID != dragTouchId || !touch.pressed) continue;
-				still = true;
-				var dx:Float = touch.x - dragLastX;
-				dragLastX = touch.x;
-				if (dx == 0) continue;
-				holdValue = Math.max(opt.minValue, Math.min(opt.maxValue, holdValue + opt.changeValue * dx / 30));
-				switch(opt.type)
-				{
-					case 'int':
-						opt.setValue(Math.round(holdValue));
-					case 'float' | 'percent':
-						opt.setValue(FlxMath.roundDecimal(holdValue, opt.decimals));
-				}
-				updateTextFrom(opt);
-				opt.change();
-			}
+				if (touch.touchPointID == tId && (touch.pressed || touch.justPressed)) { still = true; break; }
 			if (!still)
 			{
-				dragIdx = -1;
-				clearHold();
+				for (touch2 in FlxG.touches.list)
+					if (touch2.touchPointID == tId && touch2.justReleased)
+						endTouch(touch2);
+				tId = -1;
+				tState = 0;
+				tRow = -1;
 			}
 		}
 
 		for (touch in FlxG.touches.list)
 		{
-			if (!touch.justPressed) continue;
-
-			if (hitSpr(touch, backBtn))
+			if (touch.justPressed && tId == -1)
 			{
-				doClose();
-				continue;
-			}
-			if (hitSpr(touch, resetBtn))
-			{
-				resetAll();
-				continue;
-			}
+				if (hitSpr(touch, backBtn)) { doClose(); continue; }
+				if (hitSpr(touch, resetBtn)) { resetAll(); continue; }
 
-			for (i in 0...rowCards.length)
-			{
-				var card:FlxSprite = rowCards[i];
-				if (touch.x < card.x || touch.x > card.x + card.width || touch.y < card.y || touch.y > card.y + card.height)
-					continue;
-
-				selectTo(i);
-
-				if (rowSwitches[i] != null)
-					toggleBool(i);	// bool行: 整行可点切换
-				else if (rowDecL[i] != null && hitSpr(touch, rowDecL[i]))
-					adjustOption(optionsArray[i], -1);
-				else if (rowDecR[i] != null && hitSpr(touch, rowDecR[i]))
-					adjustOption(optionsArray[i], 1);
-				else
+				tRow = -1;
+				for (i in 0...rowCards.length)
 				{
-					// 数值行: 按住拖动 = 连续调整
-					dragIdx = i;
-					dragTouchId = touch.touchPointID;
-					dragLastX = touch.x;
+					var card:FlxSprite = rowCards[i];
+					if (touch.x >= card.x && touch.x <= card.x + card.width && touch.y >= card.y && touch.y <= card.y + card.height)
+					{
+						tRow = i;
+						break;
+					}
 				}
-				break;
+				tId = touch.touchPointID;
+				tStartX = tLastX = touch.x;
+				tStartY = tLastY = touch.y;
+				tState = 1;
+				tNavY = touch.y;
+				if (tRow != -1) selectTo(tRow);
+				continue;
+			}
+
+			if (touch.touchPointID != tId || !touch.pressed) continue;
+
+			var dx:Float = touch.x - tLastX;
+			var dy:Float = touch.y - tLastY;
+			tLastX = touch.x;
+			tLastY = touch.y;
+
+			// 方向判定: 纵向=导航, 横向(仅数值行)=调值
+			if (tState == 1)
+			{
+				if (Math.abs(touch.y - tStartY) > 20)
+					tState = 2;
+				else if (Math.abs(touch.x - tStartX) > 20 && tRow != -1 && optionsArray[tRow].type != 'bool')
+					tState = 3;
+			}
+
+			if (tState == 2)
+			{
+				while (touch.y - tNavY > 55) { tNavY += 55; changeSelection(1); }
+				while (tNavY - touch.y > 55) { tNavY -= 55; changeSelection(-1); }
+			}
+			else if (tState == 3 && tRow != -1)
+			{
+				var opt:GameplayOption = optionsArray[tRow];
+				if (opt.type != 'string')
+				{
+					holdValue = Math.max(opt.minValue, Math.min(opt.maxValue, holdValue + opt.changeValue * dx / 30));
+					switch(opt.type)
+					{
+						case 'int':
+							opt.setValue(Math.round(holdValue));
+						case 'float' | 'percent':
+							opt.setValue(FlxMath.roundDecimal(holdValue, opt.decimals));
+					}
+					updateTextFrom(opt);
+					opt.change();
+				}
 			}
 		}
 	}
 
-	function hitSpr(touch:FlxTouch, spr:FlxSprite):Bool
+	// 手指抬起: 待定(未滑动)视为点按
+	function endTouch(touch:FlxTouch):Void
 	{
-		if (spr == null || !spr.visible) return false;
-		return touch.x >= spr.x - 6 && touch.x <= spr.x + spr.width + 6
-			&& touch.y >= spr.y - 6 && touch.y <= spr.y + spr.height + 6;
+		if (tState == 1 && tRow != -1)
+		{
+			var opt:GameplayOption = optionsArray[tRow];
+			if (opt.type == 'bool')
+				toggleBool(tRow);
+			else if (hitSpr(touch, rowDecL[tRow]))
+				adjustOption(opt, -1);
+			else if (hitSpr(touch, rowDecR[tRow]))
+				adjustOption(opt, 1);
+		}
 	}
 	#end
 
