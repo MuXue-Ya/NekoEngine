@@ -286,17 +286,14 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 	#if mobile
 	function handleTouch():Void
 	{
-		// 结束检测(手指抬起/丢失)
+		// 结束检测(手指抬起/丢失/被池化回收)
 		if (tId != -1)
 		{
 			var still:Bool = false;
 			for (touch in FlxG.touches.list)
-				if (touch.touchPointID == tId && (touch.pressed || touch.justPressed)) { still = true; break; }
+				if (touch.touchPointID == tId && (touch.pressed || touch.justPressed || touch.justReleased)) { still = true; break; }
 			if (!still)
 			{
-				for (touch2 in FlxG.touches.list)
-					if (touch2.touchPointID == tId && touch2.justReleased)
-						endTouch(touch2);
 				tId = -1;
 				tState = 0;
 				tRow = -1;
@@ -305,27 +302,38 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 
 		for (touch in FlxG.touches.list)
 		{
-			if (touch.justPressed && tId == -1)
+			// 新按下: 无条件接管(防僵尸触点把 tId 卡死导致后续点按全部失效)
+			if (touch.justPressed)
 			{
+				tId = touch.touchPointID;
+				tState = 0;
+				tRow = -1;
+
 				if (hitSpr(touch, backBtn)) { doClose(); continue; }
 				if (hitSpr(touch, resetBtn)) { resetAll(); continue; }
 
-				tRow = -1;
 				for (i in 0...rowCards.length)
 				{
 					var card:FlxSprite = rowCards[i];
 					if (touch.x >= card.x && touch.x <= card.x + card.width && touch.y >= card.y && touch.y <= card.y + card.height)
 					{
 						tRow = i;
+						selectTo(i);
+						var opt:GameplayOption = optionsArray[i];
+						if (opt.type == 'bool')
+						{
+							toggleBool(i);	// bool行: 按下即切换, 手势剩余部分忽略
+							tState = 0;
+						}
+						else if (hitSpr(touch, rowDecL[i]))
+							adjustOption(opt, -1);
+						else if (hitSpr(touch, rowDecR[i]))
+							adjustOption(opt, 1);
+						else
+							tState = 1;	// 待定: 纵向滑动=导航 / 横向拖动=调值
 						break;
 					}
 				}
-				tId = touch.touchPointID;
-				tStartX = tLastX = touch.x;
-				tStartY = tLastY = touch.y;
-				tState = 1;
-				tNavY = touch.y;
-				if (tRow != -1) selectTo(tRow);
 				continue;
 			}
 
@@ -370,27 +378,13 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 		}
 	}
 
-	// 手指抬起: 待定(未滑动)视为点按
-	function endTouch(touch:FlxTouch):Void
-	{
-		if (tState == 1 && tRow != -1)
-		{
-			var opt:GameplayOption = optionsArray[tRow];
-			if (opt.type == 'bool')
-				toggleBool(tRow);
-			else if (hitSpr(touch, rowDecL[tRow]))
-				adjustOption(opt, -1);
-			else if (hitSpr(touch, rowDecR[tRow]))
-				adjustOption(opt, 1);
-		}
-	}
-
 	function hitSpr(touch:FlxTouch, spr:FlxSprite):Bool
 	{
 		if (spr == null || !spr.visible) return false;
 		return touch.x >= spr.x - 6 && touch.x <= spr.x + spr.width + 6
 			&& touch.y >= spr.y - 6 && touch.y <= spr.y + spr.height + 6;
 	}
+	#end
 	#end
 
 	// ===== 动作(键盘与触控共用) =====
@@ -402,8 +396,14 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 		close();
 	}
 
+	var lastToggleIdx:Int = -1;
+	var lastToggleTime:Float = 0;
 	function toggleBool(i:Int):Void
 	{
+		var now:Float = haxe.Timer.stamp();
+		if (i == lastToggleIdx && now - lastToggleTime < 0.2) return;	// 同行0.2秒内重复触发=触点抖动, 忽略
+		lastToggleIdx = i;
+		lastToggleTime = now;
 		var opt:GameplayOption = optionsArray[i];
 		FlxG.sound.play(Paths.sound('scrollMenu'));
 		opt.setValue((opt.getValue() == true) ? false : true);
