@@ -27,6 +27,9 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 
 	var backBtn:FlxSprite;
 	var resetBtn:FlxSprite;
+	var dragIdx:Int = -1;		// 正在拖动调整的行
+	var dragTouchId:Int = -1;
+	var dragLastX:Float = 0;
 
 	function getOptions()
 	{
@@ -277,6 +280,36 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 	#if mobile
 	function handleTouch():Void
 	{
+		// 拖动中: 数值行按住左右拖 = 连续调整(每30px一格)
+		if (dragIdx != -1)
+		{
+			var opt:GameplayOption = optionsArray[dragIdx];
+			var still:Bool = false;
+			for (touch in FlxG.touches.list)
+			{
+				if (touch.touchPointID != dragTouchId || !touch.pressed) continue;
+				still = true;
+				var dx:Float = touch.x - dragLastX;
+				dragLastX = touch.x;
+				if (dx == 0) continue;
+				holdValue = Math.max(opt.minValue, Math.min(opt.maxValue, holdValue + opt.changeValue * dx / 30));
+				switch(opt.type)
+				{
+					case 'int':
+						opt.setValue(Math.round(holdValue));
+					case 'float' | 'percent':
+						opt.setValue(FlxMath.roundDecimal(holdValue, opt.decimals));
+				}
+				updateTextFrom(opt);
+				opt.change();
+			}
+			if (!still)
+			{
+				dragIdx = -1;
+				clearHold();
+			}
+		}
+
 		for (touch in FlxG.touches.list)
 		{
 			if (!touch.justPressed) continue;
@@ -300,12 +333,19 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 
 				selectTo(i);
 
-				if (rowSwitches[i] != null && hitSpr(touch, rowSwitches[i]))
-					toggleBool(i);
+				if (rowSwitches[i] != null)
+					toggleBool(i);	// bool行: 整行可点切换
 				else if (rowDecL[i] != null && hitSpr(touch, rowDecL[i]))
 					adjustOption(optionsArray[i], -1);
 				else if (rowDecR[i] != null && hitSpr(touch, rowDecR[i]))
 					adjustOption(optionsArray[i], 1);
+				else
+				{
+					// 数值行: 按住拖动 = 连续调整
+					dragIdx = i;
+					dragTouchId = touch.touchPointID;
+					dragLastX = touch.x;
+				}
 				break;
 			}
 		}
