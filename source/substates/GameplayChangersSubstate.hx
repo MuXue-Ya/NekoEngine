@@ -384,6 +384,13 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 				adjustOption(opt, 1);
 		}
 	}
+
+	function hitSpr(touch:FlxTouch, spr:FlxSprite):Bool
+	{
+		if (spr == null || !spr.visible) return false;
+		return touch.x >= spr.x - 6 && touch.x <= spr.x + spr.width + 6
+			&& touch.y >= spr.y - 6 && touch.y <= spr.y + spr.height + 6;
+	}
 	#end
 
 	// ===== 动作(键盘与触控共用) =====
