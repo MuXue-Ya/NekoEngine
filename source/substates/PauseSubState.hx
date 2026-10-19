@@ -62,6 +62,19 @@ class PauseSubState extends MusicBeatSubstate
 	{
 		pageCam = FlxG.cameras.list[FlxG.cameras.list.length - 1];	// camOther(恒等,透明) —— 必须在加虚拟按键相机之前取
 
+		// 保险: 强制主状态进入暂停(万一有路径绕过 openPauseMenu 的设置)
+		if (PlayState.instance != null)
+		{
+			PlayState.instance.persistentUpdate = false;
+			PlayState.instance.paused = true;
+			if (FlxG.sound.music != null && FlxG.sound.music.playing) FlxG.sound.music.pause();
+			if (PlayState.instance.vocals != null) PlayState.instance.vocals.pause();
+			if (PlayState.instance.opponentVocals != null) PlayState.instance.opponentVocals.pause();
+		}
+		backend.PerfProbe.log('[暂停] open persistentUpdate=' + FlxG.state.persistentUpdate
+			+ ' paused=' + (PlayState.instance != null && PlayState.instance.paused)
+			+ ' musicPlaying=' + (FlxG.sound.music != null && FlxG.sound.music.playing));
+
 		buildMainList();
 
 		for (i in 0...Difficulty.list.length)
@@ -210,14 +223,26 @@ class PauseSubState extends MusicBeatSubstate
 
 	function onBack():Void
 	{
-		if (curPage != 0) { FlxG.sound.play(Paths.sound('cancelMenu')); goMainList(); return; }
+		if (curPage != 0) { FlxG.sound.play(Paths.sound('cancelMenu')); backend.PerfProbe.log('[暂停] back->主列表'); goMainList(); return; }
+		backend.PerfProbe.log('[暂停] close 原因=BACK/继续');
 		close();
 	}
 
 	var holdTime:Float = 0;
 	var cantUnpause:Float = 0.1;
+	var heartbeatT:Float = 0;
 	override function update(elapsed:Float)
 	{
+		heartbeatT += elapsed;
+		if (heartbeatT >= 1)
+		{
+			heartbeatT = 0;
+			backend.PerfProbe.log('[暂停] 心跳 persistentUpdate=' + FlxG.state.persistentUpdate
+				+ ' paused=' + (PlayState.instance != null && PlayState.instance.paused)
+				+ ' songPos=' + Math.round(Conductor.songPosition)
+				+ ' musicPlaying=' + (FlxG.sound.music != null && FlxG.sound.music.playing));
+		}
+
 		cantUnpause -= elapsed;
 		if (pauseMusic.volume < 0.5)
 			pauseMusic.volume += 0.01 * elapsed;
@@ -304,6 +329,7 @@ class PauseSubState extends MusicBeatSubstate
 		switch (daSelected)
 		{
 			case "Resume":
+				backend.PerfProbe.log('[暂停] close 原因=继续');
 				close();
 			case 'Change Difficulty':
 				goDiffList();
