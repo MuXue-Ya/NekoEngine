@@ -37,6 +37,14 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 	var tLastY:Float = 0;
 	var tNavY:Float = 0;
 
+	#if mobile
+	// 触控诊断(本轮验证用): 红点=引擎认为的触点位置, 底部红字=坐标+命中行, 抬手停留0.6秒便于截图
+	public static var touchDebug:Bool = true;
+	var dbgDot:FlxSprite;
+	var dbgText:FlxText;
+	var dbgHold:Float = 0;
+	#end
+
 	function getOptions()
 	{
 		var goption:GameplayOption = new GameplayOption('Scroll Type', 'scrolltype', 'string', 'multiplicative', ["multiplicative", "constant"]);
@@ -185,6 +193,7 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 			}
 			else
 			{
+				rowSwitches.push(null);	// 平行数组占位: 保证 rowSwitches[i] 与 optionsArray[i] 严格对应(修复开关视觉错刷)
 				var valT:FlxText = new FlxText(830, cy + 14, 230, '', 18);
 				valT.setFormat(Paths.font('vcr.ttf'), 18, MD3Theme.onSurfaceVariant, RIGHT);
 				add(valT);
@@ -214,6 +223,23 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 			}
 		}
 
+		#if mobile
+		if (touchDebug)
+		{
+			dbgDot = new FlxSprite();
+			dbgDot.pixels = MD3Rounded.createBitmap(18, 18, 9);
+			dbgDot.color = 0xFFFF4D6A;
+			dbgDot.alpha = 0.85;
+			dbgDot.visible = false;
+			add(dbgDot);
+
+			dbgText = new FlxText(0, 688, FlxG.width, '', 16);
+			dbgText.setFormat(Paths.font('vcr.ttf'), 16, 0xFFFF4D6A, CENTER);
+			dbgText.visible = false;
+			add(dbgText);
+		}
+		#end
+
 		changeSelection();
 	}
 
@@ -232,7 +258,7 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 			doClose();
 
 		#if mobile
-		handleTouch();
+		handleTouch(elapsed);
 		#end
 
 		if(nextAccept <= 0)
@@ -284,7 +310,7 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 
 	// ===== 触控 =====
 	#if mobile
-	function handleTouch():Void
+	function handleTouch(elapsed:Float):Void
 	{
 		// 结束检测(手指抬起/丢失/被池化回收)
 		if (tId != -1)
@@ -308,31 +334,48 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 				tId = touch.touchPointID;
 				tState = 0;
 				tRow = -1;
+				// 手势基准全部重置为本次按下位置(旧代码残留上次手势的 tStart/tLast/tNav, 会污染方向判定与调值步进)
+				tStartX = touch.x;
+				tStartY = touch.y;
+				tLastX = touch.x;
+				tLastY = touch.y;
+				tNavY = touch.y;
 
-				if (hitSpr(touch, backBtn)) { doClose(); continue; }
-				if (hitSpr(touch, resetBtn)) { resetAll(); continue; }
-
-				for (i in 0...rowCards.length)
+				var dbgDesc:String = '无命中';
+				if (hitSpr(touch, backBtn)) { dbgDesc = '返回'; doClose(); }
+				else if (hitSpr(touch, resetBtn)) { dbgDesc = '恢复默认'; resetAll(); }
+				else
 				{
-					var card:FlxSprite = rowCards[i];
-					if (touch.x >= card.x && touch.x <= card.x + card.width && touch.y >= card.y && touch.y <= card.y + card.height)
+					for (i in 0...rowCards.length)
 					{
-						tRow = i;
-						selectTo(i);
-						var opt:GameplayOption = optionsArray[i];
-						if (opt.type == 'bool')
+						var card:FlxSprite = rowCards[i];
+						if (touch.x >= card.x && touch.x <= card.x + card.width && touch.y >= card.y && touch.y <= card.y + card.height)
 						{
-							toggleBool(i);	// bool行: 按下即切换, 手势剩余部分忽略
-							tState = 0;
+							tRow = i;
+							dbgDesc = '行' + i + ':' + getLabel(optionsArray[i].name);
+							selectTo(i);
+							var opt:GameplayOption = optionsArray[i];
+							if (opt.type == 'bool')
+							{
+								toggleBool(i);	// bool行: 按下即切换, 手势剩余部分忽略
+								tState = 0;
+							}
+							else if (hitSpr(touch, rowDecL[i]))
+								adjustOption(opt, -1);
+							else if (hitSpr(touch, rowDecR[i]))
+								adjustOption(opt, 1);
+							else
+								tState = 1;	// 待定: 纵向滑动=导航 / 横向拖动=调值
+							break;
 						}
-						else if (hitSpr(touch, rowDecL[i]))
-							adjustOption(opt, -1);
-						else if (hitSpr(touch, rowDecR[i]))
-							adjustOption(opt, 1);
-						else
-							tState = 1;	// 待定: 纵向滑动=导航 / 横向拖动=调值
-						break;
 					}
+				}
+				backend.PerfProbe.log('[触控] down x=' + Math.round(touch.x) + ' y=' + Math.round(touch.y) + ' ' + dbgDesc);
+				if (touchDebug)
+				{
+					dbgHold = 0.6;
+					dbgText.text = '触点 x=' + Math.round(touch.x) + ' y=' + Math.round(touch.y) + '  ' + dbgDesc;
+					dbgDot.setPosition(touch.x - 9, touch.y - 9);
 				}
 				continue;
 			}
@@ -343,6 +386,11 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 			var dy:Float = touch.y - tLastY;
 			tLastX = touch.x;
 			tLastY = touch.y;
+			if (touchDebug)
+			{
+				dbgHold = 0.6;
+				dbgDot.setPosition(touch.x - 9, touch.y - 9);
+			}
 
 			// 方向判定: 纵向=导航, 横向(仅数值行)=调值
 			if (tState == 1)
@@ -374,6 +422,21 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 					updateTextFrom(opt);
 					opt.change();
 				}
+			}
+		}
+
+		if (touchDebug && dbgDot != null)
+		{
+			if (dbgHold > 0)
+			{
+				dbgHold -= elapsed;
+				dbgDot.visible = true;
+				dbgText.visible = true;
+			}
+			else
+			{
+				dbgDot.visible = false;
+				dbgText.visible = false;
 			}
 		}
 	}

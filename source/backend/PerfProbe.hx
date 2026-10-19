@@ -157,6 +157,13 @@ class PerfProbe
 			+ 'MB 帧耗时=' + Math.round(frameMs) + 'ms state=' + curStateName());
 	}
 
+	// ===== 外部日志入口(如触控诊断): 复用缓冲与约2秒落盘节奏 =====
+
+	public static function log(line:String):Void
+	{
+		push(line);
+	}
+
 	// ===== 内部 =====
 
 	static function push(line:String):Void
