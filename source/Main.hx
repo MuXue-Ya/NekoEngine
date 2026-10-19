@@ -56,13 +56,6 @@ class Main extends Sprite
 	{
 		super();
 
-		#if cpp
-		// GC 调优(内存与流畅的折中): 20% 空闲堆 + 最小 8MB 空闲
-		// 调大 = 回收更少更轻但内存更高; 调小 = 接近原版80MB但回收频繁
-		cpp.vm.Gc.setTargetFreeSpacePercentage(20);
-		cpp.vm.Gc.setMinimumFreeSpace(8 * 1024 * 1024);
-		#end
-
         #if mobile
 		StorageSystem.getPermissions();
 		var __dataDir:String = StorageSystem.getDirectory();
