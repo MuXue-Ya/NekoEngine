@@ -340,6 +340,9 @@ class OptionsState extends MusicBeatState
 		option.onChange = onChangeFrameCompensation;
 		addOption(option);
 
+		var option:Option = new Option('判定补偿', '命中判定回扣输入采样延迟的一半，\n掉帧时评级更稳定。', 'judgeCompensation', 'bool');
+		addOption(option);
+
 		#if !html5
 		var option:Option = new Option('帧率上限', "顾名思义，不用多说了吧。", 'framerate', 'int');
 		addOption(option);

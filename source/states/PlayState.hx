@@ -2661,7 +2661,13 @@ class PlayState extends MusicBeatState
 
 		// more accurate hit time for the ratings?
 		var lastTime:Float = Conductor.songPosition;
-		if(Conductor.songPosition >= 0) Conductor.songPosition = FlxG.sound.music.time;
+		if(Conductor.songPosition >= 0)
+		{
+			// 判定补偿: 按压发生在本帧内的某个时刻, 判定时间回扣本帧时长的一半(按回放速率换算成歌曲时间)
+			// (60fps 稳态 -8.3ms; 掉帧 33ms 时 -16.7ms, 把采样误差上限从整帧降到半帧)
+			var comp:Float = ClientPrefs.data.judgeCompensation ? FlxG.elapsed * 500 * playbackRate : 0;
+			Conductor.songPosition = FlxG.sound.music.time - comp;
+		}
 
 		// obtain notes that the player can hit
 		var plrInputNotes:Array<Note> = notes.members.filter(function(n:Note):Bool {

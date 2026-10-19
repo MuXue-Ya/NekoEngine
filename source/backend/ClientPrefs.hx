@@ -23,6 +23,7 @@ import states.TitleState;
 	public var cacheOnGPU:Bool = #if !switch false #else true #end; //From Stilic
 	public var framerate:Int = 60;
 	public var frameCompensation:Bool = true;	// 帧数补偿: 掉帧时按真实时间推进, 画面卡但不慢放
+	public var judgeCompensation:Bool = true;	// 判定补偿: 命中判定回扣本帧采样延迟的一半, 掉帧时评级更稳
 	public var camZooms:Bool = true;
 	public var hideHud:Bool = false;
 	public var noteOffset:Int = 0;
