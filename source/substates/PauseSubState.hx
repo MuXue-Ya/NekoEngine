@@ -1,31 +1,56 @@
 package substates;
 
-import backend.WeekData;
 import backend.Highscore;
 import backend.Song;
 
 import flixel.addons.transition.FlxTransitionableState;
 
+import flixel.input.touch.FlxTouch;
 import flixel.util.FlxStringUtil;
 
 import states.StoryMenuState;
 import states.FreeplayState;
 import options.OptionsState;
+import ui.md3.MD3Rounded;
+import ui.md3.MD3Theme;
+import ui.md3.MD3Switch;
 
+/**
+ * 暂停 (MD3): 三页结构(主列表/难度/打谱工具), 全触控+键盘兼容, 动作语义与原版一致。
+ * 触控: 未选中行=仅选中; 已选中行=按下即激活(0.25s防误触); 开关行切换MD3Switch;
+ *       跳转时间行◀▶±1s / 横向拖动扫秒 / 抬起位移<20px=应用。
+ * 键盘: 上下换选 / ACCEPT激活 / BACK返回 / Skip Time左右长按连调。
+ */
 class PauseSubState extends MusicBeatSubstate
 {
-	var grpMenuShit:FlxTypedGroup<Alphabet>;
-
+	// ===== 三页列表(内部键保留英文原串, 显示走 labelOf) =====
 	var menuItems:Array<String> = [];
-	var menuItemsOG:Array<String> = ['Resume', 'Restart Song', 'Chart Editor', 'Change Difficulty', 'Options', 'Exit to menu'];
-	var difficultyChoices = [];
+	var menuItemsOG:Array<String> = [];
+	var difficultyChoices:Array<String> = [];
+	var chartChoices:Array<String> = ['Leave Charting Mode', 'Skip Time', 'Toggle Practice Mode', 'Toggle Botplay', 'BACK'];
+	var curPage:Int = 0;	// 0=主列表 1=难度 2=打谱
 	var curSelected:Int = 0;
 
 	var pauseMusic:FlxSound;
-	var practiceText:FlxText;
-	var skipTimeText:FlxText;
-	var skipTimeTracker:Alphabet;
 	var curTime:Float = Math.max(0, Conductor.songPosition);
+	var skipRowIdx:Int = -1;
+
+	// ===== MD3 元素 =====
+	var bg:FlxSprite;
+	var backBtn:FlxSprite;
+	var backIcon:FlxSprite;
+	var titleText:FlxText;
+	var subText:FlxText;
+	var badgeText:FlxText;
+
+	// 行成员平行数组(下标严格对应 menuItems —— 玩法调整页教训)
+	var rowCards:Array<FlxSprite> = [];
+	var rowLabels:Array<FlxText> = [];
+	var rowValues:Array<FlxText> = [];
+	var rowSwitches:Array<MD3Switch> = [];
+	var rowDecL:Array<FlxSprite> = [];
+	var rowDecR:Array<FlxSprite> = [];
+	var allRowMembers:Array<FlxBasic> = [];
 
 	var missingTextBG:FlxSprite;
 	var missingText:FlxText;
@@ -34,30 +59,11 @@ class PauseSubState extends MusicBeatSubstate
 
 	override function create()
 	{
-		if(Difficulty.list.length < 2) menuItemsOG.remove('Change Difficulty'); //No need to change difficulty if there is only one!
+		buildMainList();
 
-		if(PlayState.chartingMode)
-		{
-			menuItemsOG.insert(2, 'Leave Charting Mode');
-			
-			var num:Int = 0;
-			if(!PlayState.instance.startingSong)
-			{
-				num = 1;
-				menuItemsOG.insert(3, 'Skip Time');
-			}
-			menuItemsOG.insert(3 + num, 'End Song');
-			menuItemsOG.insert(4 + num, 'Toggle Practice Mode');
-			menuItemsOG.insert(5 + num, 'Toggle Botplay');
-		}
-		menuItems = menuItemsOG;
-
-		for (i in 0...Difficulty.list.length) {
-			var diff:String = Difficulty.getString(i);
-			difficultyChoices.push(diff);
-		}
+		for (i in 0...Difficulty.list.length)
+			difficultyChoices.push(Difficulty.getString(i));
 		difficultyChoices.push('BACK');
-
 
 		pauseMusic = new FlxSound();
 		try
@@ -71,88 +77,55 @@ class PauseSubState extends MusicBeatSubstate
 
 		FlxG.sound.list.add(pauseMusic);
 
-		var bg:FlxSprite = new FlxSprite().makeGraphic(1, 1, FlxColor.BLACK);
-		bg.scale.set(FlxG.width, FlxG.height);
-		bg.updateHitbox();
+		bg = new FlxSprite().makeGraphic(FlxG.width, FlxG.height, MD3Theme.surface);
 		bg.alpha = 0;
-		bg.scrollFactor.set();
 		add(bg);
+		FlxTween.tween(bg, {alpha: 0.88}, 0.25, {ease: FlxEase.quartOut});	// 暂停要快
 
-		var levelInfo:FlxText = new FlxText(20, 15, 0, PlayState.SONG.song, 32);
-		levelInfo.scrollFactor.set();
-		levelInfo.setFormat(Paths.font("vcr.ttf"), 32);
-		levelInfo.updateHitbox();
-		add(levelInfo);
+		backBtn = new FlxSprite(36, 18);
+		backBtn.pixels = MD3Rounded.createBitmap(44, 44, 22);
+		backBtn.color = MD3Theme.surfaceContainerHigh;
+		add(backBtn);
+		backIcon = new FlxSprite(backBtn.x + 8, backBtn.y + 8);
+		backIcon.pixels = MD3Rounded.createBackArrow(28, 3);
+		backIcon.color = 0xFFFFFFFF;
+		add(backIcon);
 
-		var levelDifficulty:FlxText = new FlxText(20, 15 + 32, 0, Difficulty.getString().toUpperCase(), 32);
-		levelDifficulty.scrollFactor.set();
-		levelDifficulty.setFormat(Paths.font('vcr.ttf'), 32);
-		levelDifficulty.updateHitbox();
-		add(levelDifficulty);
+		titleText = new FlxText(0, 20, FlxG.width, '已暂停', 30);
+		titleText.setFormat(Paths.font('vcr.ttf'), 30, MD3Theme.onSurface, CENTER);
+		add(titleText);
 
-		var blueballedTxt:FlxText = new FlxText(20, 15 + 64, 0, "Blueballed: " + PlayState.deathCounter, 32);
-		blueballedTxt.scrollFactor.set();
-		blueballedTxt.setFormat(Paths.font('vcr.ttf'), 32);
-		blueballedTxt.updateHitbox();
-		add(blueballedTxt);
+		subText = new FlxText(0, 58, FlxG.width, '', 16);
+		subText.setFormat(Paths.font('vcr.ttf'), 16, MD3Theme.onSurfaceVariant, CENTER);
+		subText.text = PlayState.SONG.song + ' · ' + Difficulty.getString() + ' · 死亡 ' + PlayState.deathCounter + ' 次';
+		add(subText);
 
-		practiceText = new FlxText(20, 15 + 101, 0, "PRACTICE MODE", 32);
-		practiceText.scrollFactor.set();
-		practiceText.setFormat(Paths.font('vcr.ttf'), 32);
-		practiceText.x = FlxG.width - (practiceText.width + 20);
-		practiceText.updateHitbox();
-		practiceText.visible = PlayState.instance.practiceMode;
-		add(practiceText);
+		badgeText = new FlxText(0, 26, FlxG.width - 36, '', 16);
+		badgeText.setFormat(Paths.font('vcr.ttf'), 16, MD3Theme.primary, RIGHT);
+		badgeText.visible = false;
+		add(badgeText);
+		updateBadge();
 
-		var chartingText:FlxText = new FlxText(20, 15 + 101, 0, "CHARTING MODE", 32);
-		chartingText.scrollFactor.set();
-		chartingText.setFormat(Paths.font('vcr.ttf'), 32);
-		chartingText.x = FlxG.width - (chartingText.width + 20);
-		chartingText.y = FlxG.height - (chartingText.height + 20);
-		chartingText.updateHitbox();
-		chartingText.visible = PlayState.chartingMode;
-		add(chartingText);
-
-		blueballedTxt.alpha = 0;
-		levelDifficulty.alpha = 0;
-		levelInfo.alpha = 0;
-
-		levelInfo.x = FlxG.width - (levelInfo.width + 20);
-		levelDifficulty.x = FlxG.width - (levelDifficulty.width + 20);
-		blueballedTxt.x = FlxG.width - (blueballedTxt.width + 20);
-
-		FlxTween.tween(bg, {alpha: 0.6}, 0.4, {ease: FlxEase.quartInOut});
-		FlxTween.tween(levelInfo, {alpha: 1, y: 20}, 0.4, {ease: FlxEase.quartInOut, startDelay: 0.3});
-		FlxTween.tween(levelDifficulty, {alpha: 1, y: levelDifficulty.y + 5}, 0.4, {ease: FlxEase.quartInOut, startDelay: 0.5});
-		FlxTween.tween(blueballedTxt, {alpha: 1, y: blueballedTxt.y + 5}, 0.4, {ease: FlxEase.quartInOut, startDelay: 0.7});
-
-		grpMenuShit = new FlxTypedGroup<Alphabet>();
-		add(grpMenuShit);
-
+		// 谱面加载失败浮层(原版语义, 加在行之上)
 		missingTextBG = new FlxSprite().makeGraphic(1, 1, FlxColor.BLACK);
 		missingTextBG.scale.set(FlxG.width, FlxG.height);
 		missingTextBG.updateHitbox();
 		missingTextBG.alpha = 0.6;
 		missingTextBG.visible = false;
 		add(missingTextBG);
-		
+
 		missingText = new FlxText(50, 0, FlxG.width - 100, '', 24);
 		missingText.setFormat(Paths.font("vcr.ttf"), 24, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
 		missingText.scrollFactor.set();
 		missingText.visible = false;
 		add(missingText);
 
-		regenMenu();
+		goMainList();
 		cameras = [FlxG.cameras.list[FlxG.cameras.list.length - 1]];
-		
-		#if mobile
-		addVirtualPad(PlayState.chartingMode ? 'LEFT_FULL' : 'UP_DOWN', 'A_B');
-		addVirtualPadCamera();
-		#end
 
 		super.create();
 	}
-	
+
 	function getPauseSong()
 	{
 		var formattedSongName:String = (songName != null ? Paths.formatToSongPath(songName) : '');
@@ -162,8 +135,67 @@ class PauseSubState extends MusicBeatSubstate
 		return (formattedSongName != '') ? formattedSongName : formattedPauseMusic;
 	}
 
+	// ===== 列表构建 =====
+
+	function buildMainList():Void
+	{
+		var list:Array<String> = ['Resume', 'Restart Song', 'Chart Editor'];
+		if(Difficulty.list.length >= 2) list.push('Change Difficulty');
+		if(PlayState.chartingMode) list.push('Charting Tools');
+		list.push('Options');
+		list.push('Exit to menu');
+		menuItemsOG = list;
+	}
+
+	function labelOf(key:String):String
+	{
+		return switch (key)
+		{
+			case 'Resume': '继续';
+			case 'Restart Song': '重开本曲';
+			case 'Chart Editor': '图表编辑器';
+			case 'Change Difficulty': '调整难度';
+			case 'Charting Tools': '打谱工具';
+			case 'Options': '设置';
+			case 'Exit to menu': '退出到菜单';
+			case 'Leave Charting Mode': '离开打谱模式';
+			case 'Skip Time': '跳转时间';
+			case 'Toggle Practice Mode': '练习模式';
+			case 'Toggle Botplay': '猫娘替你打喵';
+			case 'BACK': '返回';
+			default: key;
+		}
+	}
+
+	function updateBadge():Void
+	{
+		if (PlayState.chartingMode) badgeText.text = '打谱模式';
+		else if (PlayState.instance != null && PlayState.instance.practiceMode) badgeText.text = '练习模式';
+		else { badgeText.text = ''; badgeText.visible = false; return; }
+		badgeText.visible = true;
+	}
+
+	function goMainList():Void { curPage = 0; menuItems = menuItemsOG; regenMenu(); }
+	function goDiffList():Void
+	{
+		curPage = 1; menuItems = difficultyChoices; regenMenu();
+		// 预选当前难度(而非第一行), 避免误触即刻换难度重开
+		if (PlayState.storyDifficulty >= 0 && PlayState.storyDifficulty < menuItems.length - 1)
+		{
+			curSelected = PlayState.storyDifficulty;
+			recolorRows();
+		}
+	}
+	function goChartList():Void { curPage = 2; menuItems = chartChoices; regenMenu(); }
+
+	function onBack():Void
+	{
+		if (curPage != 0) { FlxG.sound.play(Paths.sound('cancelMenu')); goMainList(); return; }
+		close();
+	}
+
 	var holdTime:Float = 0;
-	var cantUnpause:Float = 0.1;
+	var cantUnpause:Float = 0.25;
 	override function update(elapsed:Float)
 	{
 		cantUnpause -= elapsed;
@@ -172,175 +204,177 @@ class PauseSubState extends MusicBeatSubstate
 
 		super.update(elapsed);
 
-		if(controls.BACK)
-		{
-			close();
-			return;
-		}
+		#if android
+		if (FlxG.android.justReleased.BACK) { onBack(); return; }
+		#end
+		if (controls.BACK) { onBack(); return; }
 
-		updateSkipTextStuff();
+		#if mobile
+		handleTouch(elapsed);
+		#end
+
 		if (controls.UI_UP_P)
-		{
 			changeSelection(-1);
-		}
 		if (controls.UI_DOWN_P)
-		{
 			changeSelection(1);
-		}
 
-		var daSelected:String = menuItems[curSelected];
-		switch (daSelected)
+		if (menuItems[curSelected] == 'Skip Time')
 		{
-			case 'Skip Time':
-				if (controls.UI_LEFT_P)
+			if (controls.UI_LEFT_P)
+			{
+				FlxG.sound.play(Paths.sound('scrollMenu'), 0.4);
+				curTime -= 1000;
+				holdTime = 0;
+			}
+			if (controls.UI_RIGHT_P)
+			{
+				FlxG.sound.play(Paths.sound('scrollMenu'), 0.4);
+				curTime += 1000;
+				holdTime = 0;
+			}
+
+			if(controls.UI_LEFT || controls.UI_RIGHT)
+			{
+				holdTime += elapsed;
+				if(holdTime > 0.5)
 				{
-					FlxG.sound.play(Paths.sound('scrollMenu'), 0.4);
-					curTime -= 1000;
-					holdTime = 0;
-				}
-				if (controls.UI_RIGHT_P)
-				{
-					FlxG.sound.play(Paths.sound('scrollMenu'), 0.4);
-					curTime += 1000;
-					holdTime = 0;
+					curTime += 45000 * elapsed * (controls.UI_LEFT ? -1 : 1);
 				}
 
-				if(controls.UI_LEFT || controls.UI_RIGHT)
-				{
-					holdTime += elapsed;
-					if(holdTime > 0.5)
-					{
-						curTime += 45000 * elapsed * (controls.UI_LEFT ? -1 : 1);
-					}
-
-					if(curTime >= FlxG.sound.music.length) curTime -= FlxG.sound.music.length;
-					else if(curTime < 0) curTime += FlxG.sound.music.length;
-					updateSkipTimeText();
-				}
+				wrapSkipTime();
+				updateSkipTimeText();
+			}
 		}
 
 		if (controls.ACCEPT && (cantUnpause <= 0 || !controls.controllerMode))
+			activateCurrent();
+	}
+
+	// ===== 动作(键盘ACCEPT与触控共用; 语义=原版) =====
+
+	function activateCurrent():Void
+	{
+		var daSelected:String = menuItems[curSelected];
+
+		if (curPage == 1)	// 难度子页
 		{
-			if (menuItems == difficultyChoices)
+			if (daSelected == 'BACK') { goMainList(); return; }
+			try
 			{
-				try{
-					if(menuItems.length - 1 != curSelected && difficultyChoices.contains(daSelected)) {
+				var name:String = PlayState.SONG.song;
+				var poop = Highscore.formatSong(name, curSelected);
+				PlayState.SONG = Song.loadFromJson(poop, name);
+				PlayState.storyDifficulty = curSelected;
+				MusicBeatState.resetState();
+				FlxG.sound.music.volume = 0;
+				PlayState.changedDifficulty = true;
+				PlayState.chartingMode = false;
+			}
+			catch(e:Dynamic)
+			{
+				trace('ERROR! $e');
 
-						var name:String = PlayState.SONG.song;
-						var poop = Highscore.formatSong(name, curSelected);
-						PlayState.SONG = Song.loadFromJson(poop, name);
-						PlayState.storyDifficulty = curSelected;
-						MusicBeatState.resetState();
-						FlxG.sound.music.volume = 0;
-						PlayState.changedDifficulty = true;
-						PlayState.chartingMode = false;
-						return;
-					}					
-				}catch(e:Dynamic){
-					trace('ERROR! $e');
+				var errorStr:String = e.toString();
+				if(errorStr.startsWith('[file_contents,assets/data/')) errorStr = 'Missing file: ' + errorStr.substring(27, errorStr.length-1); //Missing chart
+				missingText.text = 'ERROR WHILE LOADING CHART:\n$errorStr';
+				missingText.screenCenter(Y);
+				missingText.visible = true;
+				missingTextBG.visible = true;
+				FlxG.sound.play(Paths.sound('cancelMenu'));
+			}
+			return;
+		}
 
-					var errorStr:String = e.toString();
-					if(errorStr.startsWith('[file_contents,assets/data/')) errorStr = 'Missing file: ' + errorStr.substring(27, errorStr.length-1); //Missing chart
-					missingText.text = 'ERROR WHILE LOADING CHART:\n$errorStr';
-					missingText.screenCenter(Y);
-					missingText.visible = true;
-					missingTextBG.visible = true;
-					FlxG.sound.play(Paths.sound('cancelMenu'));
-
-					super.update(elapsed);
-					return;
+		switch (daSelected)
+		{
+			case "Resume":
+				close();
+			case 'Change Difficulty':
+				goDiffList();
+			case 'Charting Tools':
+				goChartList();
+			case 'Toggle Practice Mode':
+				PlayState.instance.practiceMode = !PlayState.instance.practiceMode;
+				PlayState.changedDifficulty = true;
+				syncSwitchVisuals();
+				updateBadge();
+			case "Restart Song":
+				restartSong();
+			case "Chart Editor":
+				PlayState.instance.openChartEditor();
+			case "Leave Charting Mode":
+				restartSong();
+				PlayState.chartingMode = false;
+			case 'Skip Time':
+				applySkipTime();
+			case 'End Song':
+				close();
+				PlayState.instance.notes.clear();
+				PlayState.instance.unspawnNotes = [];
+				PlayState.instance.finishSong(true);
+			case 'Toggle Botplay':
+				PlayState.instance.cpuControlled = !PlayState.instance.cpuControlled;
+				PlayState.changedDifficulty = true;
+				PlayState.instance.botplayTxt.visible = PlayState.instance.cpuControlled;
+				PlayState.instance.botplayTxt.alpha = 1;
+				PlayState.instance.botplaySine = 0;
+				syncSwitchVisuals();
+				updateBadge();
+			case 'Options':
+				PlayState.instance.paused = true; // For lua
+				PlayState.instance.vocals.volume = 0;
+				MusicBeatState.switchState(new OptionsState());
+				if(ClientPrefs.data.pauseMusic != 'None')
+				{
+					FlxG.sound.playMusic(Paths.music(Paths.formatToSongPath(ClientPrefs.data.pauseMusic)), pauseMusic.volume);
+					FlxTween.tween(FlxG.sound.music, {volume: 1}, 0.8);
+					FlxG.sound.music.time = pauseMusic.time;
 				}
+				OptionsState.onPlayState = true;
+			case "Exit to menu":
+				#if DISCORD_ALLOWED DiscordClient.resetClientID(); #end
+				PlayState.deathCounter = 0;
+				PlayState.seenCutscene = false;
 
+				Mods.loadTopMod();
+				if(PlayState.isStoryMode)
+					MusicBeatState.switchState(new StoryMenuState());
+				else
+					MusicBeatState.switchState(new FreeplayState());
 
-				menuItems = menuItemsOG;
-				regenMenu();
-			}
-
-			switch (daSelected)
-			{
-				case "Resume":
-					close();
-				case 'Change Difficulty':
-					menuItems = difficultyChoices;
-					deleteSkipTimeText();
-					regenMenu();
-				case 'Toggle Practice Mode':
-					PlayState.instance.practiceMode = !PlayState.instance.practiceMode;
-					PlayState.changedDifficulty = true;
-					practiceText.visible = PlayState.instance.practiceMode;
-				case "Restart Song":
-					restartSong();
-				case "Chart Editor":
-					PlayState.instance.openChartEditor();
-				case "Leave Charting Mode":
-					restartSong();
-					PlayState.chartingMode = false;
-				case 'Skip Time':
-					if(curTime < Conductor.songPosition)
-					{
-						PlayState.startOnTime = curTime;
-						restartSong(true);
-					}
-					else
-					{
-						if (curTime != Conductor.songPosition)
-						{
-							PlayState.instance.clearNotesBefore(curTime);
-							PlayState.instance.setSongTime(curTime);
-						}
-						close();
-					}
-				case 'End Song':
-					close();
-					PlayState.instance.notes.clear();
-					PlayState.instance.unspawnNotes = [];
-					PlayState.instance.finishSong(true);
-				case 'Toggle Botplay':
-					PlayState.instance.cpuControlled = !PlayState.instance.cpuControlled;
-					PlayState.changedDifficulty = true;
-					PlayState.instance.botplayTxt.visible = PlayState.instance.cpuControlled;
-					PlayState.instance.botplayTxt.alpha = 1;
-					PlayState.instance.botplaySine = 0;
-				case 'Options':
-					PlayState.instance.paused = true; // For lua
-					PlayState.instance.vocals.volume = 0;
-					MusicBeatState.switchState(new OptionsState());
-					if(ClientPrefs.data.pauseMusic != 'None')
-					{
-						FlxG.sound.playMusic(Paths.music(Paths.formatToSongPath(ClientPrefs.data.pauseMusic)), pauseMusic.volume);
-						FlxTween.tween(FlxG.sound.music, {volume: 1}, 0.8);
-						FlxG.sound.music.time = pauseMusic.time;
-					}
-					OptionsState.onPlayState = true;
-				case "Exit to menu":
-					#if DISCORD_ALLOWED DiscordClient.resetClientID(); #end
-					PlayState.deathCounter = 0;
-					PlayState.seenCutscene = false;
-
-					Mods.loadTopMod();
-					if(PlayState.isStoryMode)
-						MusicBeatState.switchState(new StoryMenuState());
-					else 
-						MusicBeatState.switchState(new FreeplayState());
-
-					FlxG.sound.playMusic(Paths.music('freakyMenu'));
-					PlayState.changedDifficulty = false;
-					PlayState.chartingMode = false;
-					FlxG.camera.followLerp = 0;
-			}
+				FlxG.sound.playMusic(Paths.music('freakyMenu'));
+				PlayState.changedDifficulty = false;
+				PlayState.chartingMode = false;
+				FlxG.camera.followLerp = 0;
 		}
 	}
 
-	function deleteSkipTimeText()
+	function applySkipTime():Void
 	{
-		if(skipTimeText != null)
+		if(curTime < Conductor.songPosition)
 		{
-			skipTimeText.kill();
-			remove(skipTimeText);
-			skipTimeText.destroy();
+			PlayState.startOnTime = curTime;
+			restartSong(true);
 		}
-		skipTimeText = null;
-		skipTimeTracker = null;
+		else
+		{
+			if (curTime != Conductor.songPosition)
+			{
+				PlayState.instance.clearNotesBefore(curTime);
+				PlayState.instance.setSongTime(curTime);
+			}
+			close();
+		}
+	}
+
+	function wrapSkipTime():Void
+	{
+		if(FlxG.sound.music.length > 0)
+		{
+			if(curTime >= FlxG.sound.music.length) curTime -= FlxG.sound.music.length;
+			else if(curTime < 0) curTime += FlxG.sound.music.length;
+		}
+		else if(curTime < 0) curTime = 0;
 	}
 
 	public static function restartSong(noTrans:Bool = false)
@@ -364,85 +398,272 @@ class PauseSubState extends MusicBeatSubstate
 		super.destroy();
 	}
 
+	// ===== 视觉 =====
+
 	function changeSelection(change:Int = 0):Void
 	{
 		curSelected += change;
-
-		FlxG.sound.play(Paths.sound('scrollMenu'), 0.4);
-
 		if (curSelected < 0)
 			curSelected = menuItems.length - 1;
 		if (curSelected >= menuItems.length)
 			curSelected = 0;
-
-		var bullShit:Int = 0;
-
-		for (item in grpMenuShit.members)
+		if (change != 0)
+			FlxG.sound.play(Paths.sound('scrollMenu'), 0.4);
+		recolorRows();
+		if (menuItems[curSelected] == 'Skip Time')
 		{
-			item.targetY = bullShit - curSelected;
-			bullShit++;
+			curTime = Math.max(0, Conductor.songPosition);
+			updateSkipTimeText();
+		}
+		missingText.visible = false;
+		missingTextBG.visible = false;
+	}
 
-			item.alpha = 0.6;
-			// item.setGraphicSize(Std.int(item.width * 0.8));
-
-			if (item.targetY == 0)
+	function selectTo(i:Int):Void
+	{
+		if (i < 0 || i >= menuItems.length) return;
+		var changed:Bool = (curSelected != i);
+		curSelected = i;
+		recolorRows();
+		if (changed)
+		{
+			FlxG.sound.play(Paths.sound('scrollMenu'), 0.4);
+			if (menuItems[curSelected] == 'Skip Time')
 			{
-				item.alpha = 1;
-				// item.setGraphicSize(Std.int(item.width));
-
-				if(item == skipTimeTracker)
-				{
-					curTime = Math.max(0, Conductor.songPosition);
-					updateSkipTimeText();
-				}
+				curTime = Math.max(0, Conductor.songPosition);
+				updateSkipTimeText();
 			}
 		}
 		missingText.visible = false;
 		missingTextBG.visible = false;
 	}
 
-	function regenMenu():Void {
-		for (i in 0...grpMenuShit.members.length) {
-			var obj = grpMenuShit.members[0];
-			obj.kill();
-			grpMenuShit.remove(obj, true);
+	function recolorRows():Void
+	{
+		for (j in 0...rowCards.length)
+			rowCards[j].color = (j == curSelected) ? MD3Theme.primaryContainer : MD3Theme.surfaceContainer;
+	}
+
+	function regenMenu():Void
+	{
+		for (obj in allRowMembers)
+		{
+			remove(obj, true);
 			obj.destroy();
 		}
+		allRowMembers.resize(0);
+		rowCards.resize(0);
+		rowLabels.resize(0);
+		rowValues.resize(0);
+		rowSwitches.resize(0);
+		rowDecL.resize(0);
+		rowDecR.resize(0);
+		skipRowIdx = -1;
 
-		for (i in 0...menuItems.length) {
-			var item = new Alphabet(90, 320, menuItems[i], true);
-			item.isMenuItem = true;
-			item.targetY = i;
-			grpMenuShit.add(item);
+		for (i in 0...menuItems.length)
+		{
+			var key:String = menuItems[i];
+			var cy:Float = 96 + i * 62;
 
-			if(menuItems[i] == 'Skip Time')
+			var card:FlxSprite = new FlxSprite(60, cy);
+			card.pixels = MD3Rounded.createBitmap(1160, 52, 12);
+			card.color = MD3Theme.surfaceContainer;
+			add(card);
+			allRowMembers.push(card);
+			rowCards.push(card);
+
+			// 难度子页: 原始难度名 + 返回; 其余页: labelOf 中文
+			var labelText:String = (curPage == 1 && key != 'BACK') ? key : labelOf(key);
+			var label:FlxText = new FlxText(84, cy + 14, 0, labelText, 20);
+			label.setFormat(Paths.font('vcr.ttf'), 20, MD3Theme.onSurface);
+			add(label);
+			allRowMembers.push(label);
+			rowLabels.push(label);
+
+			if (key == 'Toggle Practice Mode' || key == 'Toggle Botplay')
 			{
-				skipTimeText = new FlxText(0, 0, 0, '', 64);
-				skipTimeText.setFormat(Paths.font("vcr.ttf"), 64, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
-				skipTimeText.scrollFactor.set();
-				skipTimeText.borderSize = 2;
-				skipTimeTracker = item;
-				add(skipTimeText);
+				var sw:MD3Switch = new MD3Switch(1120, cy + 10,
+					(key == 'Toggle Practice Mode') ? PlayState.instance.practiceMode : PlayState.instance.cpuControlled, null);
+				add(sw);
+				allRowMembers.push(sw);
+				rowSwitches.push(sw);
+				rowValues.push(null);
+				rowDecL.push(null);
+				rowDecR.push(null);
+			}
+			else if (key == 'Skip Time')
+			{
+				skipRowIdx = i;
+				rowSwitches.push(null);
+				var valT:FlxText = new FlxText(830, cy + 14, 230, '', 18);
+				valT.setFormat(Paths.font('vcr.ttf'), 18, MD3Theme.onSurfaceVariant, RIGHT);
+				add(valT);
+				allRowMembers.push(valT);
+				rowValues.push(valT);
 
-				updateSkipTextStuff();
+				var decL:FlxSprite = new FlxSprite(1080, cy + 10);
+				decL.pixels = MD3Rounded.createBitmap(32, 32, 8);
+				decL.color = MD3Theme.primaryContainer;
+				add(decL);
+				allRowMembers.push(decL);
+				rowDecL.push(decL);
+				var decLText:FlxText = new FlxText(0, 0, 0, '<', 14);
+				decLText.setFormat(Paths.font('vcr.ttf'), 14, MD3Theme.onPrimaryContainer, CENTER);
+				decLText.setPosition(decL.x + (32 - decLText.width) / 2, decL.y + 8);
+				add(decLText);
+				allRowMembers.push(decLText);
+
+				var decR:FlxSprite = new FlxSprite(1160, cy + 10);
+				decR.pixels = MD3Rounded.createBitmap(32, 32, 8);
+				decR.color = MD3Theme.primaryContainer;
+				add(decR);
+				allRowMembers.push(decR);
+				rowDecR.push(decR);
+				var decRText:FlxText = new FlxText(0, 0, 0, '>', 14);
+				decRText.setFormat(Paths.font('vcr.ttf'), 14, MD3Theme.onPrimaryContainer, CENTER);
+				decRText.setPosition(decR.x + (32 - decRText.width) / 2, decR.y + 8);
+				add(decRText);
+				allRowMembers.push(decRText);
+
 				updateSkipTimeText();
 			}
+			else
+			{
+				rowSwitches.push(null);
+				rowValues.push(null);
+				rowDecL.push(null);
+				rowDecR.push(null);
+			}
 		}
+
 		curSelected = 0;
-		changeSelection();
-	}
-	
-	function updateSkipTextStuff()
-	{
-		if(skipTimeText == null || skipTimeTracker == null) return;
-
-		skipTimeText.x = skipTimeTracker.x + skipTimeTracker.width + 60;
-		skipTimeText.y = skipTimeTracker.y;
-		skipTimeText.visible = (skipTimeTracker.alpha >= 1);
+		recolorRows();
 	}
 
-	function updateSkipTimeText()
+	function updateSkipTimeText():Void
 	{
-		skipTimeText.text = FlxStringUtil.formatTime(Math.max(0, Math.floor(curTime / 1000)), false) + ' / ' + FlxStringUtil.formatTime(Math.max(0, Math.floor(FlxG.sound.music.length / 1000)), false);
+		if (skipRowIdx < 0 || skipRowIdx >= rowValues.length || rowValues[skipRowIdx] == null) return;
+		rowValues[skipRowIdx].text = FlxStringUtil.formatTime(Math.max(0, Math.floor(curTime / 1000)), false) + ' / '
+			+ FlxStringUtil.formatTime(Math.max(0, Math.floor(FlxG.sound.music.length / 1000)), false);
 	}
+
+	function syncSwitchVisuals():Void
+	{
+		for (i in 0...menuItems.length)
+		{
+			if (rowSwitches[i] == null) continue;
+			var key:String = menuItems[i];
+			if (key == 'Toggle Practice Mode') rowSwitches[i].on = PlayState.instance.practiceMode;
+			else if (key == 'Toggle Botplay') rowSwitches[i].on = PlayState.instance.cpuControlled;
+		}
+	}
+
+	// ===== 触控 =====
+	#if mobile
+	// 触控状态机: 未选中行=仅选中; 已选中行=激活; 跳转时间行◀▶/拖扫/抬起应用
+	var tId:Int = -1;
+	var tRow:Int = -1;
+	var tScrub:Bool = false;
+	var tLastX:Float = 0;
+	var tTotalDx:Float = 0;
+
+	function handleTouch(elapsed:Float):Void
+	{
+		for (touch in FlxG.touches.list)
+		{
+			if (touch.justPressed)
+			{
+				tId = touch.touchPointID;
+				tRow = -1;
+				tScrub = false;
+				tTotalDx = 0;
+				tLastX = touch.x;
+
+				if (hitSpr(touch, backBtn))
+				{
+					backend.PerfProbe.log('[暂停] down x=' + Math.round(touch.x) + ' y=' + Math.round(touch.y) + ' 返回钮');
+					if (cantUnpause <= 0) onBack();
+					continue;
+				}
+
+				var hitDesc:String = '无命中';
+				for (i in 0...rowCards.length)
+				{
+					var card:FlxSprite = rowCards[i];
+					if (touch.x >= card.x && touch.x <= card.x + card.width && touch.y >= card.y && touch.y <= card.y + card.height)
+					{
+						tRow = i;
+						var key:String = menuItems[i];
+						hitDesc = '行' + i + ':' + labelOf(key);
+						if (curSelected != i)
+						{
+							selectTo(i);	// 第一触: 仅选中(触控二段确认, 继续行恒选中故单击即续)
+							hitDesc += ' (选中)';
+						}
+						else if (cantUnpause > 0)
+						{
+							hitDesc += ' (防误触忽略)';
+						}
+						else if (key == 'Skip Time')
+						{
+							if (hitSpr(touch, rowDecL[i])) { curTime -= 1000; wrapSkipTime(); updateSkipTimeText(); hitDesc += ' ◀'; }
+							else if (hitSpr(touch, rowDecR[i])) { curTime += 1000; wrapSkipTime(); updateSkipTimeText(); hitDesc += ' ▶'; }
+							else tScrub = true;	// 行身: 拖=扫秒, 抬起位移<20px=应用
+						}
+						else
+						{
+							hitDesc += ' (激活)';
+							activateCurrent();
+						}
+						break;
+					}
+				}
+				backend.PerfProbe.log('[暂停] down x=' + Math.round(touch.x) + ' y=' + Math.round(touch.y) + ' ' + hitDesc);
+				continue;
+			}
+
+			if (touch.touchPointID != tId) continue;
+
+			if (touch.pressed)
+			{
+				var dx:Float = touch.x - tLastX;
+				tLastX = touch.x;
+				tTotalDx += dx;
+				if (tScrub)
+				{
+					curTime += dx * 500;	// 0.5秒/px
+					wrapSkipTime();
+					updateSkipTimeText();
+				}
+			}
+			else if (touch.justReleased)
+			{
+				if (tScrub && tRow >= 0 && Math.abs(tTotalDx) < 20)
+				{
+					backend.PerfProbe.log('[暂停] up 应用跳转 t=' + Math.round(curTime));
+					activateCurrent();	// curSelected 已在按下时 selectTo
+				}
+				tId = -1;
+				tRow = -1;
+				tScrub = false;
+			}
+		}
+
+		// 丢失检测(触点被池化回收, 不含justReleased帧)
+		if (tId != -1)
+		{
+			var still:Bool = false;
+			for (t in FlxG.touches.list)
+				if (t.touchPointID == tId) { still = true; break; }
+			if (!still) { tId = -1; tRow = -1; tScrub = false; }
+		}
+	}
+
+	function hitSpr(touch:FlxTouch, spr:FlxSprite):Bool
+	{
+		if (spr == null || !spr.visible) return false;
+		return touch.x >= spr.x - 6 && touch.x <= spr.x + spr.width + 6
+			&& touch.y >= spr.y - 6 && touch.y <= spr.y + spr.height + 6;
+	}
+	#end
 }
