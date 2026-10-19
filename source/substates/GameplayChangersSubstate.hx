@@ -385,7 +385,6 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 			&& touch.y >= spr.y - 6 && touch.y <= spr.y + spr.height + 6;
 	}
 	#end
-	#end
 
 	// ===== 动作(键盘与触控共用) =====
 
