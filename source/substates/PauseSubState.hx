@@ -5,6 +5,7 @@ import backend.Song;
 
 import flixel.addons.transition.FlxTransitionableState;
 
+import flixel.FlxBasic;
 import flixel.input.touch.FlxTouch;
 import flixel.util.FlxStringUtil;
 
