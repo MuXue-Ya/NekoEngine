@@ -6,7 +6,6 @@ import backend.Song;
 import flixel.addons.transition.FlxTransitionableState;
 
 import flixel.FlxBasic;
-import flixel.input.touch.FlxTouch;
 import flixel.util.FlxStringUtil;
 
 import states.StoryMenuState;
@@ -17,10 +16,10 @@ import ui.md3.MD3Theme;
 import ui.md3.MD3Switch;
 
 /**
- * 暂停 (MD3): 三页结构(主列表/难度/打谱工具), 全触控+键盘兼容, 动作语义与原版一致。
- * 触控: 未选中行=仅选中; 已选中行=按下即激活(0.25s防误触); 开关行切换MD3Switch;
- *       跳转时间行◀▶±1s / 横向拖动扫秒 / 抬起位移<20px=应用。
- * 键盘: 上下换选 / ACCEPT激活 / BACK返回 / Skip Time左右长按连调。
+ * 暂停 (MD3 双面板): 左=菜单列表(继续/重开/难度/打谱/设置/退出), 右=歌曲信息+计数+评分。
+ * 输入: 虚拟按键(UP_DOWN+A_B, 打谱时LEFT_FULL) + 键盘; 触控已按用户要求移除(子状态相机偏移问题)。
+ * 关键修复: 子状态内 sprites 默认仍渲染在 camGame(游戏相机,带滚动/缩放)上,
+ *          必须显式把每个成员挂到 camOther(恒等相机) —— applyCamAll(), 否则面板跟随相机偏移。
  */
 class PauseSubState extends MusicBeatSubstate
 {
@@ -37,14 +36,12 @@ class PauseSubState extends MusicBeatSubstate
 	var skipRowIdx:Int = -1;
 
 	// ===== MD3 元素 =====
+	var pageCam:FlxCamera;
 	var bg:FlxSprite;
-	var backBtn:FlxSprite;
-	var backIcon:FlxSprite;
 	var titleText:FlxText;
-	var subText:FlxText;
 	var badgeText:FlxText;
+	var hintText:FlxText;
 
-	// 行成员平行数组(下标严格对应 menuItems —— 玩法调整页教训)
 	var rowCards:Array<FlxSprite> = [];
 	var rowLabels:Array<FlxText> = [];
 	var rowValues:Array<FlxText> = [];
@@ -53,6 +50,9 @@ class PauseSubState extends MusicBeatSubstate
 	var rowDecR:Array<FlxSprite> = [];
 	var allRowMembers:Array<FlxBasic> = [];
 
+	// 右侧信息面板
+	var infoValues:Array<FlxText> = [];
+
 	var missingTextBG:FlxSprite;
 	var missingText:FlxText;
 
@@ -60,6 +60,8 @@ class PauseSubState extends MusicBeatSubstate
 
 	override function create()
 	{
+		pageCam = FlxG.cameras.list[FlxG.cameras.list.length - 1];	// camOther(恒等,透明) —— 必须在加虚拟按键相机之前取
+
 		buildMainList();
 
 		for (i in 0...Difficulty.list.length)
@@ -81,33 +83,42 @@ class PauseSubState extends MusicBeatSubstate
 		bg = new FlxSprite().makeGraphic(FlxG.width, FlxG.height, MD3Theme.surface);
 		bg.alpha = 0;
 		add(bg);
-		FlxTween.tween(bg, {alpha: 0.88}, 0.25, {ease: FlxEase.quartOut});	// 暂停要快
+		FlxTween.tween(bg, {alpha: 0.88}, 0.25, {ease: FlxEase.quartOut});
 
-		backBtn = new FlxSprite(36, 18);
-		backBtn.pixels = MD3Rounded.createBitmap(44, 44, 22);
-		backBtn.color = MD3Theme.surfaceContainerHigh;
-		add(backBtn);
-		backIcon = new FlxSprite(backBtn.x + 8, backBtn.y + 8);
-		backIcon.pixels = MD3Rounded.createBackArrow(28, 3);
-		backIcon.color = 0xFFFFFFFF;
-		add(backIcon);
-
-		titleText = new FlxText(0, 20, FlxG.width, '已暂停', 30);
-		titleText.setFormat(Paths.font('vcr.ttf'), 30, MD3Theme.onSurface, CENTER);
+		titleText = new FlxText(0, 14, FlxG.width, '已暂停', 28);
+		titleText.setFormat(Paths.font('vcr.ttf'), 28, MD3Theme.onSurface, CENTER);
 		add(titleText);
 
-		subText = new FlxText(0, 58, FlxG.width, '', 16);
-		subText.setFormat(Paths.font('vcr.ttf'), 16, MD3Theme.onSurfaceVariant, CENTER);
-		subText.text = PlayState.SONG.song + ' · ' + Difficulty.getString() + ' · 死亡 ' + PlayState.deathCounter + ' 次';
-		add(subText);
-
-		badgeText = new FlxText(0, 26, FlxG.width - 36, '', 16);
-		badgeText.setFormat(Paths.font('vcr.ttf'), 16, MD3Theme.primary, RIGHT);
+		badgeText = new FlxText(0, 20, FlxG.width - 36, '', 15);
+		badgeText.setFormat(Paths.font('vcr.ttf'), 15, MD3Theme.primary, RIGHT);
 		badgeText.visible = false;
 		add(badgeText);
 		updateBadge();
 
-		// 谱面加载失败浮层(原版语义, 加在行之上)
+		// ===== 左面板: 菜单 =====
+		var leftPanel:FlxSprite = new FlxSprite(36, 80);
+		leftPanel.pixels = MD3Rounded.createBitmap(520, 360, 18);
+		leftPanel.color = MD3Theme.surfaceContainer;
+		add(leftPanel);
+		var leftCap:FlxText = new FlxText(56, 92, 0, '菜单', 14);
+		leftCap.setFormat(Paths.font('vcr.ttf'), 14, MD3Theme.onSurfaceVariant);
+		add(leftCap);
+
+		// ===== 右面板: 歌曲信息/计数/评分 =====
+		var rightPanel:FlxSprite = new FlxSprite(572, 80);
+		rightPanel.pixels = MD3Rounded.createBitmap(672, 360, 18);
+		rightPanel.color = MD3Theme.surfaceContainer;
+		add(rightPanel);
+		var rightCap:FlxText = new FlxText(600, 92, 0, '歌曲信息', 14);
+		rightCap.setFormat(Paths.font('vcr.ttf'), 14, MD3Theme.onSurfaceVariant);
+		add(rightCap);
+		buildInfoPanel();
+
+		hintText = new FlxText(0, 688, FlxG.width, '↑↓ 选择 · A 确认 · B 返回/继续', 14);
+		hintText.setFormat(Paths.font('vcr.ttf'), 14, MD3Theme.onSurfaceVariant, CENTER);
+		add(hintText);
+
+		// 谱面加载失败浮层(原版语义, 加在面板之上)
 		missingTextBG = new FlxSprite().makeGraphic(1, 1, FlxColor.BLACK);
 		missingTextBG.scale.set(FlxG.width, FlxG.height);
 		missingTextBG.updateHitbox();
@@ -122,7 +133,15 @@ class PauseSubState extends MusicBeatSubstate
 		add(missingText);
 
 		goMainList();
-		cameras = [FlxG.cameras.list[FlxG.cameras.list.length - 1]];
+
+		#if mobile
+		addVirtualPad(PlayState.chartingMode ? 'LEFT_FULL' : 'UP_DOWN', 'A_B');
+		addVirtualPadCamera();
+		#end
+
+		// 关键: 本子状态所有成员显式挂到恒等相机(默认会落在 camGame 上跟随相机偏移)
+		applyCamAll();
+		cameras = [pageCam];
 
 		super.create();
 	}
@@ -180,7 +199,7 @@ class PauseSubState extends MusicBeatSubstate
 	function goDiffList():Void
 	{
 		curPage = 1; menuItems = difficultyChoices; regenMenu();
-		// 预选当前难度(而非第一行), 避免误触即刻换难度重开
+		// 预选当前难度(而非第一行), 避免误按即刻换难度重开
 		if (PlayState.storyDifficulty >= 0 && PlayState.storyDifficulty < menuItems.length - 1)
 		{
 			curSelected = PlayState.storyDifficulty;
@@ -196,7 +215,7 @@ class PauseSubState extends MusicBeatSubstate
 	}
 
 	var holdTime:Float = 0;
-	var cantUnpause:Float = 0.25;
+	var cantUnpause:Float = 0.1;
 	override function update(elapsed:Float)
 	{
 		cantUnpause -= elapsed;
@@ -209,10 +228,6 @@ class PauseSubState extends MusicBeatSubstate
 		if (FlxG.android.justReleased.BACK) { onBack(); return; }
 		#end
 		if (controls.BACK) { onBack(); return; }
-
-		#if mobile
-		handleTouch(elapsed);
-		#end
 
 		if (controls.UI_UP_P)
 			changeSelection(-1);
@@ -251,7 +266,7 @@ class PauseSubState extends MusicBeatSubstate
 			activateCurrent();
 	}
 
-	// ===== 动作(键盘ACCEPT与触控共用; 语义=原版) =====
+	// ===== 动作(键盘ACCEPT/虚拟按键共用; 语义=原版) =====
 
 	function activateCurrent():Void
 	{
@@ -299,6 +314,7 @@ class PauseSubState extends MusicBeatSubstate
 				PlayState.changedDifficulty = true;
 				syncSwitchVisuals();
 				updateBadge();
+				updateInfoPanel();
 			case "Restart Song":
 				restartSong();
 			case "Chart Editor":
@@ -321,6 +337,7 @@ class PauseSubState extends MusicBeatSubstate
 				PlayState.instance.botplaySine = 0;
 				syncSwitchVisuals();
 				updateBadge();
+				updateInfoPanel();
 			case 'Options':
 				PlayState.instance.paused = true; // For lua
 				PlayState.instance.vocals.volume = 0;
@@ -420,29 +437,10 @@ class PauseSubState extends MusicBeatSubstate
 		missingTextBG.visible = false;
 	}
 
-	function selectTo(i:Int):Void
-	{
-		if (i < 0 || i >= menuItems.length) return;
-		var changed:Bool = (curSelected != i);
-		curSelected = i;
-		recolorRows();
-		if (changed)
-		{
-			FlxG.sound.play(Paths.sound('scrollMenu'), 0.4);
-			if (menuItems[curSelected] == 'Skip Time')
-			{
-				curTime = Math.max(0, Conductor.songPosition);
-				updateSkipTimeText();
-			}
-		}
-		missingText.visible = false;
-		missingTextBG.visible = false;
-	}
-
 	function recolorRows():Void
 	{
 		for (j in 0...rowCards.length)
-			rowCards[j].color = (j == curSelected) ? MD3Theme.primaryContainer : MD3Theme.surfaceContainer;
+			rowCards[j].color = (j == curSelected) ? MD3Theme.primaryContainer : MD3Theme.surfaceContainerHigh;
 	}
 
 	function regenMenu():Void
@@ -461,29 +459,30 @@ class PauseSubState extends MusicBeatSubstate
 		rowDecR.resize(0);
 		skipRowIdx = -1;
 
+		// 行几何: 左面板(36,80,520,360)内 x=56 w=480 h=40 pitch=44 首行 y=118
 		for (i in 0...menuItems.length)
 		{
 			var key:String = menuItems[i];
-			var cy:Float = 96 + i * 62;
+			var cy:Float = 118 + i * 44;
 
-			var card:FlxSprite = new FlxSprite(60, cy);
-			card.pixels = MD3Rounded.createBitmap(1160, 52, 12);
-			card.color = MD3Theme.surfaceContainer;
+			var card:FlxSprite = new FlxSprite(56, cy);
+			card.pixels = MD3Rounded.createBitmap(480, 40, 10);
+			card.color = MD3Theme.surfaceContainerHigh;
 			add(card);
 			allRowMembers.push(card);
 			rowCards.push(card);
 
 			// 难度子页: 原始难度名 + 返回; 其余页: labelOf 中文
 			var labelText:String = (curPage == 1 && key != 'BACK') ? key : labelOf(key);
-			var label:FlxText = new FlxText(84, cy + 14, 0, labelText, 20);
-			label.setFormat(Paths.font('vcr.ttf'), 20, MD3Theme.onSurface);
+			var label:FlxText = new FlxText(76, cy + 9, 0, labelText, 17);
+			label.setFormat(Paths.font('vcr.ttf'), 17, MD3Theme.onSurface);
 			add(label);
 			allRowMembers.push(label);
 			rowLabels.push(label);
 
 			if (key == 'Toggle Practice Mode' || key == 'Toggle Botplay')
 			{
-				var sw:MD3Switch = new MD3Switch(1120, cy + 10,
+				var sw:MD3Switch = new MD3Switch(456, cy + 4,
 					(key == 'Toggle Practice Mode') ? PlayState.instance.practiceMode : PlayState.instance.cpuControlled, null);
 				add(sw);
 				allRowMembers.push(sw);
@@ -496,13 +495,13 @@ class PauseSubState extends MusicBeatSubstate
 			{
 				skipRowIdx = i;
 				rowSwitches.push(null);
-				var valT:FlxText = new FlxText(830, cy + 14, 230, '', 18);
-				valT.setFormat(Paths.font('vcr.ttf'), 18, MD3Theme.onSurfaceVariant, RIGHT);
+				var valT:FlxText = new FlxText(200, cy + 11, 150, '', 15);
+				valT.setFormat(Paths.font('vcr.ttf'), 15, MD3Theme.onSurfaceVariant, RIGHT);
 				add(valT);
 				allRowMembers.push(valT);
 				rowValues.push(valT);
 
-				var decL:FlxSprite = new FlxSprite(1080, cy + 10);
+				var decL:FlxSprite = new FlxSprite(360, cy + 4);
 				decL.pixels = MD3Rounded.createBitmap(32, 32, 8);
 				decL.color = MD3Theme.primaryContainer;
 				add(decL);
@@ -510,11 +509,11 @@ class PauseSubState extends MusicBeatSubstate
 				rowDecL.push(decL);
 				var decLText:FlxText = new FlxText(0, 0, 0, '<', 14);
 				decLText.setFormat(Paths.font('vcr.ttf'), 14, MD3Theme.onPrimaryContainer, CENTER);
-				decLText.setPosition(decL.x + (32 - decLText.width) / 2, decL.y + 8);
+				decLText.setPosition(decL.x + (32 - decLText.width) / 2, decL.y + 7);
 				add(decLText);
 				allRowMembers.push(decLText);
 
-				var decR:FlxSprite = new FlxSprite(1160, cy + 10);
+				var decR:FlxSprite = new FlxSprite(398, cy + 4);
 				decR.pixels = MD3Rounded.createBitmap(32, 32, 8);
 				decR.color = MD3Theme.primaryContainer;
 				add(decR);
@@ -522,7 +521,7 @@ class PauseSubState extends MusicBeatSubstate
 				rowDecR.push(decR);
 				var decRText:FlxText = new FlxText(0, 0, 0, '>', 14);
 				decRText.setFormat(Paths.font('vcr.ttf'), 14, MD3Theme.onPrimaryContainer, CENTER);
-				decRText.setPosition(decR.x + (32 - decRText.width) / 2, decR.y + 8);
+				decRText.setPosition(decR.x + (32 - decRText.width) / 2, decR.y + 7);
 				add(decRText);
 				allRowMembers.push(decRText);
 
@@ -539,6 +538,48 @@ class PauseSubState extends MusicBeatSubstate
 
 		curSelected = 0;
 		recolorRows();
+		applyCamAll();
+	}
+
+	// ===== 右侧信息面板 =====
+
+	function buildInfoPanel():Void
+	{
+		var labels:Array<String> = ['曲名', '难度', '进度', '得分', '失误', '死亡次数', '评分', '模式'];
+		for (i in 0...labels.length)
+		{
+			var ly:Float = 120 + i * 39;
+			var l:FlxText = new FlxText(600, ly, 0, labels[i], 16);
+			l.setFormat(Paths.font('vcr.ttf'), 16, MD3Theme.onSurfaceVariant);
+			add(l);
+
+			var v:FlxText = new FlxText(760, ly, 456, '', 16);
+			v.setFormat(Paths.font('vcr.ttf'), 16, MD3Theme.onSurface, RIGHT);
+			add(v);
+			infoValues.push(v);
+		}
+		updateInfoPanel();
+	}
+
+	function updateInfoPanel():Void
+	{
+		if (infoValues.length < 8 || PlayState.instance == null) return;
+		infoValues[0].text = PlayState.SONG.song;
+		infoValues[1].text = Difficulty.getString();
+		infoValues[2].text = FlxStringUtil.formatTime(Math.max(0, Math.floor(Conductor.songPosition / 1000)), false)
+			+ ' / ' + FlxStringUtil.formatTime(Math.max(0, Math.floor(FlxG.sound.music.length / 1000)), false);
+		infoValues[3].text = Std.string(PlayState.instance.songScore);
+		infoValues[4].text = Std.string(PlayState.instance.songMisses);
+		infoValues[5].text = Std.string(PlayState.deathCounter);
+		if (PlayState.instance.totalPlayed > 0)
+			infoValues[6].text = PlayState.instance.ratingName + ' ' + CoolUtil.floorDecimal(PlayState.instance.ratingPercent * 100, 2) + '%';
+		else
+			infoValues[6].text = '—';
+		var modeStr:String = '';
+		if (PlayState.chartingMode) modeStr += '打谱:开 ';
+		modeStr += '练习:' + (PlayState.instance.practiceMode ? '开' : '关');
+		modeStr += ' 猫娘替你打喵:' + (PlayState.instance.cpuControlled ? '开' : '关');
+		infoValues[7].text = modeStr;
 	}
 
 	function updateSkipTimeText():Void
@@ -559,112 +600,28 @@ class PauseSubState extends MusicBeatSubstate
 		}
 	}
 
-	// ===== 触控 =====
-	#if mobile
-	// 触控状态机: 未选中行=仅选中; 已选中行=激活; 跳转时间行◀▶/拖扫/抬起应用
-	var tId:Int = -1;
-	var tRow:Int = -1;
-	var tScrub:Bool = false;
-	var tLastX:Float = 0;
-	var tTotalDx:Float = 0;
+	// ===== 相机修复: 子状态成员默认渲染在 camGame 上(带滚动/缩放) —— 显式挂到恒等相机 =====
 
-	function handleTouch(elapsed:Float):Void
+	function applyCamAll():Void
 	{
-		for (touch in FlxG.touches.list)
+		for (m in members)
 		{
-			if (touch.justPressed)
-			{
-				tId = touch.touchPointID;
-				tRow = -1;
-				tScrub = false;
-				tTotalDx = 0;
-				tLastX = touch.x;
-
-				if (hitSpr(touch, backBtn))
-				{
-					backend.PerfProbe.log('[暂停] down x=' + Math.round(touch.x) + ' y=' + Math.round(touch.y) + ' 返回钮');
-					if (cantUnpause <= 0) onBack();
-					continue;
-				}
-
-				var hitDesc:String = '无命中';
-				for (i in 0...rowCards.length)
-				{
-					var card:FlxSprite = rowCards[i];
-					if (touch.x >= card.x && touch.x <= card.x + card.width && touch.y >= card.y && touch.y <= card.y + card.height)
-					{
-						tRow = i;
-						var key:String = menuItems[i];
-						hitDesc = '行' + i + ':' + labelOf(key);
-						if (curSelected != i)
-						{
-							selectTo(i);	// 第一触: 仅选中(触控二段确认, 继续行恒选中故单击即续)
-							hitDesc += ' (选中)';
-						}
-						else if (cantUnpause > 0)
-						{
-							hitDesc += ' (防误触忽略)';
-						}
-						else if (key == 'Skip Time')
-						{
-							if (hitSpr(touch, rowDecL[i])) { curTime -= 1000; wrapSkipTime(); updateSkipTimeText(); hitDesc += ' ◀'; }
-							else if (hitSpr(touch, rowDecR[i])) { curTime += 1000; wrapSkipTime(); updateSkipTimeText(); hitDesc += ' ▶'; }
-							else tScrub = true;	// 行身: 拖=扫秒, 抬起位移<20px=应用
-						}
-						else
-						{
-							hitDesc += ' (激活)';
-							activateCurrent();
-						}
-						break;
-					}
-				}
-				backend.PerfProbe.log('[暂停] down x=' + Math.round(touch.x) + ' y=' + Math.round(touch.y) + ' ' + hitDesc);
-				continue;
-			}
-
-			if (touch.touchPointID != tId) continue;
-
-			if (touch.pressed)
-			{
-				var dx:Float = touch.x - tLastX;
-				tLastX = touch.x;
-				tTotalDx += dx;
-				if (tScrub)
-				{
-					curTime += dx * 500;	// 0.5秒/px
-					wrapSkipTime();
-					updateSkipTimeText();
-				}
-			}
-			else if (touch.justReleased)
-			{
-				if (tScrub && tRow >= 0 && Math.abs(tTotalDx) < 20)
-				{
-					backend.PerfProbe.log('[暂停] up 应用跳转 t=' + Math.round(curTime));
-					activateCurrent();	// curSelected 已在按下时 selectTo
-				}
-				tId = -1;
-				tRow = -1;
-				tScrub = false;
-			}
-		}
-
-		// 丢失检测(触点被池化回收, 不含justReleased帧)
-		if (tId != -1)
-		{
-			var still:Bool = false;
-			for (t in FlxG.touches.list)
-				if (t.touchPointID == tId) { still = true; break; }
-			if (!still) { tId = -1; tRow = -1; tScrub = false; }
+			if (m == null) continue;
+			#if mobile
+			if (m == virtualPad) continue;	// 虚拟按键有自己的相机
+			#end
+			applyCam(m);
 		}
 	}
 
-	function hitSpr(touch:FlxTouch, spr:FlxSprite):Bool
+	function applyCam(m:FlxBasic):Void
 	{
-		if (spr == null || !spr.visible) return false;
-		return touch.x >= spr.x - 6 && touch.x <= spr.x + spr.width + 6
-			&& touch.y >= spr.y - 6 && touch.y <= spr.y + spr.height + 6;
+		m.cameras = [pageCam];
+		if ((m is FlxSpriteGroup))
+		{
+			var g:FlxSpriteGroup = cast m;
+			for (child in g.members)
+				if (child != null) child.cameras = [pageCam];
+		}
 	}
-	#end
 }
