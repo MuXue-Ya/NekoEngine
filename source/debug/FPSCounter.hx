@@ -28,6 +28,7 @@ class FPSCounter extends Sprite
 	static inline var GRAPH_W:Int = 100;	// 曲线宽度(像素)
 	static inline var GRAPH_H:Int = 30;		// 曲线高度(像素)
 	static inline var GAP:Int = 3;			// 行间距
+	static inline var SAMPLE_MS:Float = 150;	// 采样间隔: 100列×150ms ≈ 15秒历史(原每帧一格只有1.7秒, 看不出趋势)
 
 	// ===== 内部组件 =====
 	var verText:TextField;	// 引擎名+版本
@@ -43,6 +44,11 @@ class FPSCounter extends Sprite
 	var memMax:Float = 1;	// 内存曲线的动态最大值
 	var gcMax:Float = 1;	// GC占用曲线的动态最大值
 	var lastGcMem:Float = 0;	// 上一帧的 GC 当前堆内存
+
+	var sampleAcc:Float = 0;	// 采样累积器(ms)
+	var lastYFps:Int = -1;		// 上一采样点纵坐标(-1=尚未采样)
+	var lastYMem:Int = -1;
+	var lastYGc:Int = -1;
 
 	var _rect:Rectangle = new Rectangle();	// 复用的矩形, 避免每帧分配
 	var textCooldown:Float = 0;	// 文字降频刷新计时
@@ -147,24 +153,21 @@ class FPSCounter extends Sprite
 		while (times[0] < now - 1000) times.shift();
 
 		currentFPS = times.length < FlxG.updateFramerate ? times.length : FlxG.updateFramerate;
-		// 曲线每帧走格, 文字每 200ms 刷一次, 减少文本重排和对象分配
+		// 文字每 200ms 刷一次; 曲线内部按 150ms 采样, 每帧只累积计时
 		textCooldown += deltaTime;
 		if (textCooldown >= 200)
 		{
 			textCooldown = 0;
-			updateText();
+			updateTexts();
 		}
-		else
-		{
-			updateGraphs();
-		}
+		updateGraphs(deltaTime);
 		#if mobile setScale(); #end
 		deltaTimeout += deltaTime;
 	}
 
 	public dynamic function updateText():Void { // so people can override it in hscript
 		updateTexts();
-		updateGraphs();
+		updateGraphs(0);
 	}
 
 	dynamic function updateTexts():Void {
@@ -178,30 +181,36 @@ class FPSCounter extends Sprite
 		gcText.textColor = baseColor;
 	}
 
-	dynamic function updateGraphs():Void {
-		// ===== 帧数曲线 =====
+	dynamic function updateGraphs(deltaMs:Float = 0):Void {
+		// 定间隔采样: 每列代表 150ms, 100列 ≈ 15秒趋势; 不足间隔只累积不画
+		sampleAcc += deltaMs;
+		if (sampleAcc < SAMPLE_MS) return;
+		sampleAcc -= SAMPLE_MS;
+
+		// ===== 帧数曲线(折线) =====
 		_rect.x = GRAPH_W - 1; _rect.y = 0; _rect.width = 1; _rect.height = GRAPH_H;
 		fpsBD.scroll(-1, 0);	// 左移一格
 		fpsBD.fillRect(_rect, 0x00000000);	// 清空最右列
 		var fpsH:Int = Std.int(Math.max(1, Math.min(1.0, currentFPS / Math.max(FlxG.drawFramerate, 1)) * GRAPH_H));
 		var fpsCol:Int = (currentFPS < FlxG.drawFramerate * 0.5) ? 0xFFFF5555 : 0xFF66FF99;
-		_rect.y = GRAPH_H - fpsH; _rect.height = fpsH;
-		fpsBD.fillRect(_rect, fpsCol);
+		var yF:Int = GRAPH_H - fpsH;
+		plotLine(fpsBD, yF, lastYFps, fpsCol);
+		lastYFps = yF;
 
-		// ===== 内存曲线 =====
+		// ===== 内存曲线(折线) =====
 		var mem:Float = memoryMegas;
 		// 动态量程: 峰值缓慢衰减, 曲线不会长期贴顶
 		memMax = Math.max(mem, memMax * 0.9985);
 		if (memMax < 1) memMax = 1;
-		_rect.y = 0; _rect.height = GRAPH_H;
+		_rect.x = GRAPH_W - 1; _rect.y = 0; _rect.height = GRAPH_H;
 		memBD.scroll(-1, 0);
 		memBD.fillRect(_rect, 0x00000000);
 		var memH:Int = Std.int(Math.max(1, Math.min(1.0, mem / memMax) * GRAPH_H));
-		_rect.y = GRAPH_H - memH; _rect.height = memH;
-		memBD.fillRect(_rect, 0xFF55CCFF);
+		var yM:Int = GRAPH_H - memH;
+		plotLine(memBD, yM, lastYMem, 0xFF55CCFF);
+		lastYMem = yM;
 
-		// ===== GC 堆占用曲线 =====
-		// 占用趋势(锯齿: 上升=垃圾积累, 陡降=发生回收), 动态量程
+		// ===== GC 堆占用曲线(折线, 锯齿: 上升=垃圾积累, 陡降=发生回收) =====
 		// hxcpp 没有暂停耗时接口, 回收判定用"堆内存显著下降"(阈值2MB), 事件走日志
 		var curMem:Float = getGcCurrent();
 		var drop:Float = lastGcMem - curMem;
@@ -212,12 +221,28 @@ class FPSCounter extends Sprite
 		}
 		gcMax = Math.max(curMem, gcMax * 0.9985);
 		if (gcMax < 1) gcMax = 1;
-		_rect.y = 0; _rect.height = GRAPH_H;
+		_rect.x = GRAPH_W - 1; _rect.y = 0; _rect.height = GRAPH_H;
 		gcBD.scroll(-1, 0);
 		gcBD.fillRect(_rect, 0x00000000);
 		var gcH:Int = Std.int(Math.max(1, Math.min(1.0, curMem / gcMax) * GRAPH_H));
-		_rect.y = GRAPH_H - gcH; _rect.height = gcH;
-		gcBD.fillRect(_rect, 0xFFFFBB55);
+		var yG:Int = GRAPH_H - gcH;
+		plotLine(gcBD, yG, lastYGc, 0xFFFFBB55);
+		lastYGc = yG;
+	}
+
+	// 折线绘制: 相邻列各画一点, 在最右列连 prevY→y 的竖直段; 首采样只画单点
+	inline function plotLine(bd:BitmapData, y:Int, prevY:Int, col:Int):Void
+	{
+		if (prevY < 0)
+		{
+			_rect.y = y; _rect.height = 1;
+		}
+		else
+		{
+			_rect.y = (y < prevY) ? y : prevY;
+			_rect.height = (y < prevY ? prevY - y : y - prevY) + 1;
+		}
+		bd.fillRect(_rect, col);
 	}
 
 	// GC 当前堆内存(含未回收垃圾, 锯齿波动); 非cpp目标退化为总内存
