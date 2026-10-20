@@ -30,6 +30,12 @@ class FPSCounter extends Sprite
 	static inline var GAP:Int = 3;			// 行间距
 	static inline var SAMPLE_MS:Float = 150;	// 采样间隔: 100列×150ms ≈ 15秒历史(原每帧一格只有1.7秒, 看不出趋势)
 
+	// ===== 柱状图配色(RGB; 画的时候柱身叠半透明, 柱帽用全亮) =====
+	static inline var COL_FPS_OK:Int = 0x66FF99;	// 帧数正常: 绿
+	static inline var COL_FPS_BAD:Int = 0xFF5555;	// 帧数过低: 红
+	static inline var COL_MEM:Int = 0x55CCFF;	// 内存: 蓝
+	static inline var COL_GC:Int = 0xFFBB55;	// GC: 橙
+
 	// ===== 内部组件 =====
 	var verText:TextField;	// 引擎名+版本
 	var fpsText:TextField;	// 帧数
@@ -46,9 +52,6 @@ class FPSCounter extends Sprite
 	var lastGcMem:Float = 0;	// 上一帧的 GC 当前堆内存
 
 	var sampleAcc:Float = 0;	// 采样累积器(ms)
-	var lastYFps:Int = -1;		// 上一采样点纵坐标(-1=尚未采样)
-	var lastYMem:Int = -1;
-	var lastYGc:Int = -1;
 
 	var _rect:Rectangle = new Rectangle();	// 复用的矩形, 避免每帧分配
 	var textCooldown:Float = 0;	// 文字降频刷新计时
@@ -187,17 +190,15 @@ class FPSCounter extends Sprite
 		if (sampleAcc < SAMPLE_MS) return;
 		sampleAcc -= SAMPLE_MS;
 
-		// ===== 帧数曲线(折线) =====
+		// ===== 帧数曲线(柱状) =====
 		_rect.x = GRAPH_W - 1; _rect.y = 0; _rect.width = 1; _rect.height = GRAPH_H;
 		fpsBD.scroll(-1, 0);	// 左移一格
 		fpsBD.fillRect(_rect, 0x00000000);	// 清空最右列
 		var fpsH:Int = Std.int(Math.max(1, Math.min(1.0, currentFPS / Math.max(FlxG.drawFramerate, 1)) * GRAPH_H));
-		var fpsCol:Int = (currentFPS < FlxG.drawFramerate * 0.5) ? 0xFFFF5555 : 0xFF66FF99;
-		var yF:Int = GRAPH_H - fpsH;
-		plotLine(fpsBD, yF, lastYFps, fpsCol);
-		lastYFps = yF;
+		var fpsRGB:Int = (currentFPS < FlxG.drawFramerate * 0.5) ? COL_FPS_BAD : COL_FPS_OK;
+		plotBar(fpsBD, GRAPH_H - fpsH, fpsRGB);
 
-		// ===== 内存曲线(折线) =====
+		// ===== 内存曲线(柱状) =====
 		var mem:Float = memoryMegas;
 		// 动态量程: 峰值缓慢衰减, 曲线不会长期贴顶
 		memMax = Math.max(mem, memMax * 0.9985);
@@ -206,11 +207,9 @@ class FPSCounter extends Sprite
 		memBD.scroll(-1, 0);
 		memBD.fillRect(_rect, 0x00000000);
 		var memH:Int = Std.int(Math.max(1, Math.min(1.0, mem / memMax) * GRAPH_H));
-		var yM:Int = GRAPH_H - memH;
-		plotLine(memBD, yM, lastYMem, 0xFF55CCFF);
-		lastYMem = yM;
+		plotBar(memBD, GRAPH_H - memH, COL_MEM);
 
-		// ===== GC 堆占用曲线(折线, 锯齿: 上升=垃圾积累, 陡降=发生回收) =====
+		// ===== GC 堆占用曲线(柱状, 锯齿: 上升=垃圾积累, 陡降=发生回收) =====
 		// hxcpp 没有暂停耗时接口, 回收判定用"堆内存显著下降"(阈值2MB), 事件走日志
 		var curMem:Float = getGcCurrent();
 		var drop:Float = lastGcMem - curMem;
@@ -225,24 +224,24 @@ class FPSCounter extends Sprite
 		gcBD.scroll(-1, 0);
 		gcBD.fillRect(_rect, 0x00000000);
 		var gcH:Int = Std.int(Math.max(1, Math.min(1.0, curMem / gcMax) * GRAPH_H));
-		var yG:Int = GRAPH_H - gcH;
-		plotLine(gcBD, yG, lastYGc, 0xFFFFBB55);
-		lastYGc = yG;
+		plotBar(gcBD, GRAPH_H - gcH, COL_GC);
 	}
 
-	// 折线绘制: 相邻列各画一点, 在最右列连 prevY→y 的竖直段; 首采样只画单点
-	inline function plotLine(bd:BitmapData, y:Int, prevY:Int, col:Int):Void
+	// 柱状图绘制: 半透明柱身 + 顶部2px全亮横线(柱帽) + 帽上1px微光, 每次只画最右一列
+	inline function plotBar(bd:BitmapData, y:Int, rgb:Int):Void
 	{
-		if (prevY < 0)
+		// 柱帽: 顶部亮横线(2px, 全亮度)
+		_rect.x = GRAPH_W - 1; _rect.y = y; _rect.width = 1; _rect.height = 2;
+		bd.fillRect(_rect, 0xFF000000 | rgb);
+		// 柱帽上沿的辉光(1px, 低透明度)
+		if (y > 0)
 		{
-			_rect.y = y; _rect.height = 1;
+			_rect.y = y - 1; _rect.height = 1;
+			bd.fillRect(_rect, 0x66000000 | rgb);
 		}
-		else
-		{
-			_rect.y = (y < prevY) ? y : prevY;
-			_rect.height = (y < prevY ? prevY - y : y - prevY) + 1;
-		}
-		bd.fillRect(_rect, col);
+		// 柱身: 从柱帽往下到底, 半透明
+		_rect.y = y + 2; _rect.height = GRAPH_H - y - 2;
+		if (_rect.height > 0) bd.fillRect(_rect, 0x55000000 | rgb);
 	}
 
 	// GC 当前堆内存(含未回收垃圾, 锯齿波动); 非cpp目标退化为总内存
