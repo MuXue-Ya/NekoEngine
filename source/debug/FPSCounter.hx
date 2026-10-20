@@ -227,18 +227,12 @@ class FPSCounter extends Sprite
 		plotBar(gcBD, GRAPH_H - gcH, COL_GC);
 	}
 
-	// 柱状图绘制: 半透明柱身 + 顶部2px全亮横线(柱帽) + 帽上1px微光, 每次只画最右一列
+	// 柱状图绘制: 半透明柱身 + 顶部2px全亮实心横线(柱帽), 无辉光, 边缘锐利
 	inline function plotBar(bd:BitmapData, y:Int, rgb:Int):Void
 	{
-		// 柱帽: 顶部亮横线(2px, 全亮度)
+		// 柱帽: 顶部亮横线(2px, 全亮度, 不透明)
 		_rect.x = GRAPH_W - 1; _rect.y = y; _rect.width = 1; _rect.height = 2;
 		bd.fillRect(_rect, 0xFF000000 | rgb);
-		// 柱帽上沿的辉光(1px, 低透明度)
-		if (y > 0)
-		{
-			_rect.y = y - 1; _rect.height = 1;
-			bd.fillRect(_rect, 0x66000000 | rgb);
-		}
 		// 柱身: 从柱帽往下到底, 半透明
 		_rect.y = y + 2; _rect.height = GRAPH_H - y - 2;
 		if (_rect.height > 0) bd.fillRect(_rect, 0x55000000 | rgb);
