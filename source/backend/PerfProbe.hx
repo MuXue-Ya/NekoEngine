@@ -231,6 +231,7 @@ class PerfProbe
 		var texCnt:Int = 0;
 		var texMB:Float = 0;
 		var astcCnt:Int = 0;
+		var gpuCnt:Int = 0;
 		@:privateAccess
 		for (key in FlxG.bitmap._cache.keys())
 		{
@@ -239,13 +240,33 @@ class PerfProbe
 			#if ASTC_SUPPORT
 			if (Std.isOfType(g.bitmap, backend.astcsupport.openfl.display.ASTCBitmapData)) { astcCnt++; continue; }
 			#end
+			if (!g.bitmap.readable) { gpuCnt++; continue; }	// GPU化纹理: 数据在GL, 零堆占用
 			texCnt++;
 			texMB += g.bitmap.width * g.bitmap.height * 4 / 1048576;
 		}
-		push('[' + fmt(nowMs) + '] 内存分解 普通贴图=' + texCnt + '张/' + Math.round(texMB)
-			+ 'MB ASTC=' + astcCnt + '张 跟踪图=' + Lambda.count(Paths.currentTrackedAssets)
+		var rssMB:Float = readRssMB();
+		var rssLine:String = (rssMB >= 0) ? ' rss=' + Math.round(rssMB) + 'MB(进程总)' : '';
+		push('[' + fmt(nowMs) + '] 内存分解 堆内贴图=' + texCnt + '张/' + Math.round(texMB)
+			+ 'MB GPU化=' + gpuCnt + '张 ASTC=' + astcCnt + '张 跟踪图=' + Lambda.count(Paths.currentTrackedAssets)
 			+ ' 跟踪音=' + Lambda.count(Paths.currentTrackedSounds)
-			+ ' 曲=' + (states.PlayState.SONG != null ? states.PlayState.SONG.song : '-'));
+			+ ' 曲=' + (states.PlayState.SONG != null ? states.PlayState.SONG.song : '-') + rssLine);
 		#end
+	}
+
+	// 进程真实内存(VmRSS): 含音频PCM/GPU驱动等 hxcpp堆之外的开销, 差值=堆外占用
+	static function readRssMB():Float
+	{
+		#if (cpp && mobile)
+		try
+		{
+			var s:String = sys.io.File.getContent('/proc/self/status');
+			var idx:Int = s.indexOf('VmRSS:');
+			if (idx < 0) return -1;
+			var endIdx:Int = s.indexOf('kB', idx);
+			return Std.parseFloat(s.substr(idx + 6, endIdx - idx - 6)) / 1024;
+		}
+		catch (e:Dynamic) {}
+		#end
+		return -1;
 	}
 }
