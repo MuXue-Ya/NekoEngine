@@ -20,8 +20,8 @@
   ],
     "excludes": [
     "assets/shared/images/storymenu/*",
-    "assets/mobile/pauseButton.png",
-    "assets/mobile/virtualpad/*",
+    "assets/mobile/images/pauseButton.png",
+    "assets/mobile/images/virtualpad/*",
     "assets/shared/images/characters/bfPixel.png",
     "assets/shared/images/characters/bfPixelsDEAD.png",
     "assets/shared/images/characters/gfPixel.png",
