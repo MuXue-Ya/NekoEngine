@@ -44,6 +44,19 @@ jobs:
           haxelib run lime config JAVA_HOME $JAVA_HOME_17_X64
           haxelib run lime config ANDROID_SETUP true
 
+      - name: Cache ASTC textures
+        uses: actions/cache@v4
+        with:
+          path: astc-textures
+          key: astc-${{ runner.os }}-${{ hashFiles('assets/**/*.png', 'astc-compression-data.json') }}
+
+      - name: Compress Textures (ASTC)
+        run: |
+          ASTC_DIR=$(haxelib path astc-compressor | head -1)
+          chmod +x "$ASTC_DIR"/plugins/Linux/x64/astcenc-* || true
+          haxelib run astc-compressor compress-from-json -json ./astc-compression-data.json
+          python3 scripts/astc_backfill.py
+
       - name: Compile
         run: haxelib run lime build android -release
 
