@@ -362,8 +362,11 @@ class Paths
 		#if ASTC_SUPPORT
 		isAstc = StringTools.endsWith(file, '.astc');
 		#end
-		
-		if (allowGPU && ClientPrefs.data.cacheOnGPU && !isAstc)
+
+		// 大图自动 GPU 化: 解码 >= 4MB 的贴图上传显存后丢弃 CPU 副本(不受 cacheOnGPU 开关影响)
+		// 目标: mod 大图/excludes 未压缩图的堆占用; 小图维持原路径零风险; ASTC 本就零堆占用直接跳过
+		var bigTex:Bool = bitmap.width * bitmap.height * 4 >= 4194304;
+		if (allowGPU && !isAstc && (ClientPrefs.data.cacheOnGPU || bigTex))
 		{
 			var texture:RectangleTexture = FlxG.stage.context3D.createRectangleTexture(bitmap.width, bitmap.height, BGRA, true);
 			texture.uploadFromBitmapData(bitmap);
