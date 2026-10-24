@@ -254,18 +254,47 @@ class PerfProbe
 	}
 
 	// 进程真实内存(VmRSS): 含音频PCM/GPU驱动等 hxcpp堆之外的开销, 差值=堆外占用
+	static var rssFailLogged:Bool = false;
+
 	static function readRssMB():Float
 	{
 		#if (cpp && mobile)
+		// 优先 /proc/self/status 的 VmRSS; 失败再用 /proc/self/stat 的 rss 页数(字段24)
 		try
 		{
 			var s:String = sys.io.File.getContent('/proc/self/status');
 			var idx:Int = s.indexOf('VmRSS:');
-			if (idx < 0) return -1;
-			var endIdx:Int = s.indexOf('kB', idx);
-			return Std.parseFloat(s.substr(idx + 6, endIdx - idx - 6)) / 1024;
+			if (idx >= 0)
+			{
+				var endIdx:Int = s.indexOf('kB', idx);
+				if (endIdx > idx)
+				{
+					var v:Float = Std.parseFloat(s.substr(idx + 6, endIdx - idx - 6));
+					if (!Math.isNaN(v) && v >= 0) return v / 1024;
+				}
+			}
 		}
 		catch (e:Dynamic) {}
+		try
+		{
+			var stat:String = sys.io.File.getContent('/proc/self/stat');
+			var closeIdx:Int = stat.lastIndexOf(')');
+			if (closeIdx >= 0)
+			{
+				var parts:Array<String> = stat.substr(closeIdx + 2).split(' ');
+				if (parts.length > 22)
+				{
+					var pages:Float = Std.parseFloat(parts[22]);
+					if (!Math.isNaN(pages) && pages > 0) return pages * 4096 / 1048576;
+				}
+			}
+		}
+		catch (e2:Dynamic) {}
+		if (!rssFailLogged)
+		{
+			rssFailLogged = true;
+			push('[' + fmt(Timer.stamp() * 1000) + '] rss读取失败(两种途径均不可用)');
+		}
 		#end
 		return -1;
 	}

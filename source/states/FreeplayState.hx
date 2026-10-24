@@ -93,6 +93,11 @@ class FreeplayState extends MusicBeatState
 
 	override function create()
 	{
+		// 打歌退出后的落点: 清掉 PlayState 残留(贴图缓存 persist/音符PCM/GL纹理), 对齐 StoryMenuState 模式
+		Paths.clearStoredMemory();
+		Paths.clearUnusedMemory();
+		PlayState.SONG = null;	// 静态谱面数据释放(下次进歌重新 loadFromJson)
+
 		persistentUpdate = true;
 		PlayState.isStoryMode = false;
 		WeekData.reloadWeekFiles(false);

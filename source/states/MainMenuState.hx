@@ -56,6 +56,11 @@ class MainMenuState extends MusicBeatState
 
 	override function create()
 	{
+		// 打歌退出路径的兜底清理(Freeplay->主菜单), 释放残留贴图与音频
+		Paths.clearStoredMemory();
+		Paths.clearUnusedMemory();
+		PlayState.SONG = null;	// 静态谱面数据释放(此处的读取已有判空)
+
 		#if MODS_ALLOWED
 		Mods.pushGlobalMods();
 		#end
