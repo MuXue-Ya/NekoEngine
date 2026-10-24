@@ -6,7 +6,6 @@ import backend.Song;
 import flixel.addons.transition.FlxTransitionableState;
 
 import flixel.FlxBasic;
-import flixel.input.touch.FlxTouch;
 import flixel.util.FlxStringUtil;
 
 import states.StoryMenuState;
@@ -18,8 +17,7 @@ import ui.md3.MD3Switch;
 
 /**
  * 暂停 (MD3 双面板): 左=菜单列表(继续/重开/难度/打谱/设置/退出), 右=歌曲信息+计数+评分。
- * 输入: 触控(点按菜单行/开关/◀▶/左下返回按钮, Run#69) + Android返回键 + 键盘; 虚拟按键已移除
- *      (Run#68 手柄贴图被 ASTC 误压: excludes 路径少 images/ 层, 贴图直读失败)。
+ * 输入: 虚拟按键(UP_DOWN+A_B, 打谱时LEFT_FULL) + 键盘; 触控已按用户要求移除(子状态相机偏移问题)。
  * 关键修复: 子状态内 sprites 默认仍渲染在 camGame(游戏相机,带滚动/缩放)上,
  *          必须显式把每个成员挂到 camOther(恒等相机) —— applyCamAll(), 否则面板跟随相机偏移。
  */
@@ -129,7 +127,7 @@ class PauseSubState extends MusicBeatSubstate
 		add(rightCap);
 		buildInfoPanel();
 
-		hintText = new FlxText(0, 688, FlxG.width, '点按菜单项操作 · Android返回键/左下按钮 = 返回', 14);
+		hintText = new FlxText(0, 688, FlxG.width, '↑↓ 选择 · A 确认 · B 返回/继续', 14);
 		hintText.setFormat(Paths.font('vcr.ttf'), 14, MD3Theme.onSurfaceVariant, CENTER);
 		add(hintText);
 
@@ -150,16 +148,8 @@ class PauseSubState extends MusicBeatSubstate
 		goMainList();
 
 		#if mobile
-		// 触控返回按钮(左下角): 虚拟手柄已移除(Run#68 ASTC 误压手柄贴图), 暂停页改纯触控
-		backTouchBtn = new FlxSprite(36, 682);
-		backTouchBtn.pixels = MD3Rounded.createBitmap(120, 36, 10);
-		backTouchBtn.color = MD3Theme.surfaceContainerHigh;
-		add(backTouchBtn);
-		backTouchText = new FlxText(0, 0, 0, '返回', 15);
-		backTouchText.setFormat(Paths.font('vcr.ttf'), 15, MD3Theme.onSurface, CENTER);
-		backTouchText.setPosition(backTouchBtn.x + (backTouchBtn.width - backTouchText.width) / 2,
-			backTouchBtn.y + (backTouchBtn.height - backTouchText.height) / 2);
-		add(backTouchText);
+		addVirtualPad(PlayState.chartingMode ? 'LEFT_FULL' : 'UP_DOWN', 'A_B');
+		addVirtualPadCamera();
 		#end
 
 		// 关键: 本子状态所有成员显式挂到恒等相机(默认会落在 camGame 上跟随相机偏移)
@@ -258,10 +248,6 @@ class PauseSubState extends MusicBeatSubstate
 			pauseMusic.volume += 0.01 * elapsed;
 
 		super.update(elapsed);
-
-		#if mobile
-		handleTouch(elapsed);
-		#end
 
 		#if android
 		if (FlxG.android.justReleased.BACK) { onBack(); return; }
@@ -640,108 +626,6 @@ class PauseSubState extends MusicBeatSubstate
 		}
 	}
 
-	// ===== 触控(点按式; 子状态成员都挂恒等 pageCam, 成员坐标=屏幕坐标, 可直接与 touch.x/y 比对) =====
-
-	#if mobile
-	var backTouchBtn:FlxSprite;
-	var backTouchText:FlxText;
-	var tHoldId:Int = -1;	// 按住 ◀▶ 连续调时间的触点
-	var tHoldDir:Int = 0;	// -1=◀ +1=▶
-
-	inline function inSpr(touch:FlxTouch, s:FlxSprite):Bool
-	{
-		if (s == null) return false;
-		return touch.x >= s.x && touch.x <= s.x + s.width && touch.y >= s.y && touch.y <= s.y + s.height;
-	}
-
-	function handleTouch(elapsed:Float):Void
-	{
-		// 按住 ◀▶ 连续调时间(对齐键盘 UI_LEFT/RIGHT 的 holdTime 逻辑)
-		if (tHoldId != -1)
-		{
-			var still:Bool = false;
-			var cx:Float = 0, cy:Float = 0;
-			for (touch in FlxG.touches.list)
-				if (touch.touchPointID == tHoldId && (touch.pressed || touch.justPressed)) { still = true; cx = touch.x; cy = touch.y; break; }
-			var btn:FlxSprite = (skipRowIdx >= 0) ? (tHoldDir < 0 ? rowDecL[skipRowIdx] : rowDecR[skipRowIdx]) : null;
-			if (!still || btn == null || !inSprPoint(cx, cy, btn))
-			{
-				tHoldId = -1; tHoldDir = 0;
-			}
-			else
-			{
-				holdTime += elapsed;
-				curTime += 45000 * elapsed * tHoldDir;
-				wrapSkipTime();
-				updateSkipTimeText();
-			}
-		}
-
-		for (touch in FlxG.touches.list)
-		{
-			if (!touch.justPressed) continue;
-			var desc:String = '无命中';
-			if (inSpr(touch, backTouchBtn))
-			{
-				desc = '返回按钮';
-				backend.PerfProbe.log('[暂停触控] down ' + desc);
-				onBack();
-				continue;
-			}
-
-			if (cantUnpause > 0) continue;	// 进暂停瞬间的残留触点不响应
-
-			for (i in 0...rowCards.length)
-			{
-				var card:FlxSprite = rowCards[i];
-				if (!(touch.x >= card.x && touch.x <= card.x + card.width && touch.y >= card.y && touch.y <= card.y + card.height))
-					continue;
-
-				var key:String = menuItems[i];
-				desc = '行' + i + ':' + labelOf(key);
-				if (i == skipRowIdx)
-				{
-					// Skip Time 行: 点◀▶调时间(支持按住连调), 点行其他区域仅选中(防误触跳转)
-					curSelected = i;
-					recolorRows();
-					if (inSpr(touch, rowDecL[i]))
-					{
-						FlxG.sound.play(Paths.sound('scrollMenu'), 0.4);
-						curTime -= 1000; holdTime = 0;
-						tHoldId = touch.touchPointID; tHoldDir = -1;
-						desc += ' ◀';
-					}
-					else if (inSpr(touch, rowDecR[i]))
-					{
-						FlxG.sound.play(Paths.sound('scrollMenu'), 0.4);
-						curTime += 1000; holdTime = 0;
-						tHoldId = touch.touchPointID; tHoldDir = 1;
-						desc += ' ▶';
-					}
-					wrapSkipTime();
-					updateSkipTimeText();
-				}
-				else
-				{
-					// 普通行/开关行: 点击=选中并执行(开关行整行都是切换热区, 好点)
-					curSelected = i;
-					recolorRows();
-					desc += ' 激活';
-					activateCurrent();
-				}
-				break;
-			}
-			backend.PerfProbe.log('[暂停触控] down x=' + Math.round(touch.x) + ' y=' + Math.round(touch.y) + ' ' + desc);
-		}
-	}
-
-	inline function inSprPoint(px:Float, py:Float, s:FlxSprite):Bool
-	{
-		if (s == null) return false;
-		return px >= s.x && px <= s.x + s.width && py >= s.y && py <= s.y + s.height;
-	}
-	#end
-
 	// ===== 相机修复: 子状态成员默认渲染在 camGame 上(带滚动/缩放) —— 显式挂到恒等相机 =====
 
 	function applyCamAll():Void
@@ -749,6 +633,9 @@ class PauseSubState extends MusicBeatSubstate
 		for (m in members)
 		{
 			if (m == null) continue;
+			#if mobile
+			if (m == virtualPad) continue;	// 虚拟按键有自己的相机
+			#end
 			applyCam(m);
 		}
 	}
