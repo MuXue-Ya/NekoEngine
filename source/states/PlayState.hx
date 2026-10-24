@@ -157,6 +157,17 @@ class PlayState extends MusicBeatState
 
 	public var notes:FlxTypedGroup<Note>;
 	public var unspawnNotes:Array<Note> = [];
+
+	// ===== 谱面数据层(窗口化生成): 平铺数据不实例化 Note, 滚动生成 =====
+	public var chartTimes:Array<Float> = [];	// 排序后的判定时刻
+	public var chartDataI:Array<Int> = [];		// 0-3 方向
+	public var chartPress:Array<Bool> = [];		// mustPress
+	public var chartSus:Array<Float> = [];		// sustainLength
+	public var chartGf:Array<Bool> = [];		// gfNote
+	public var chartType:Array<Dynamic> = [];	// noteType(原始 String/Int/null)
+	public var chartIdx:Int = 0;			// 下一个待实例化的行
+	public static inline var CHART_SPAWN_WINDOW:Float = 8000;	// 预生成窗口(ms), 覆盖 playbackRate/multSpeed 最坏情况
+
 	public var eventNotes:Array<EventNote> = [];
 
 	public var camFollow:FlxObject;
@@ -1103,6 +1114,10 @@ class PlayState extends MusicBeatState
 
 	public function clearNotesBefore(time:Float)
 	{
+		// 数据层同步: 跳过窗口之前尚未实例化的行(它们不再需要生成)
+		while (chartIdx < chartTimes.length && chartTimes[chartIdx] - 350 < time)
+			chartIdx++;
+
 		var i:Int = unspawnNotes.length - 1;
 		while (i >= 0) {
 			var daNote:Note = unspawnNotes[i];
@@ -1339,6 +1354,7 @@ class PlayState extends MusicBeatState
 					makeEvent(event, i);
 		}
 
+		// ===== 窗口化谱面: 数据层平铺(不实例化 Note), 按时间排序后滚动生成 =====
 		for (section in noteData)
 		{
 			for (songNotes in section.sectionNotes)
@@ -1346,99 +1362,123 @@ class PlayState extends MusicBeatState
 				var daStrumTime:Float = songNotes[0];
 				var daNoteData:Int = Std.int(songNotes[1] % 4);
 				var gottaHitNote:Bool = section.mustHitSection;
+				if (songNotes[1] > 3) gottaHitNote = !section.mustHitSection;
 
-				if (songNotes[1] > 3)
-				{
-					gottaHitNote = !section.mustHitSection;
-				}
-
-				var oldNote:Note;
-				if (unspawnNotes.length > 0)
-					oldNote = unspawnNotes[Std.int(unspawnNotes.length - 1)];
-				else
-					oldNote = null;
-
-				var swagNote:Note = new Note(daStrumTime, daNoteData, oldNote);
-				swagNote.mustPress = gottaHitNote;
-				swagNote.sustainLength = songNotes[2];
-				swagNote.gfNote = (section.gfSection && (songNotes[1]<4));
-				swagNote.noteType = songNotes[3];
-				if(!Std.isOfType(songNotes[3], String)) swagNote.noteType = ChartingState.noteTypeList[songNotes[3]]; //Backward compatibility + compatibility with Week 7 charts
-
-				swagNote.scrollFactor.set();
-
-				unspawnNotes.push(swagNote);
-
-				final susLength:Float = swagNote.sustainLength / Conductor.stepCrochet;
-				final floorSus:Int = Math.floor(susLength);
-
-				if(floorSus > 0) {
-					for (susNote in 0...floorSus + 1)
-					{
-						oldNote = unspawnNotes[Std.int(unspawnNotes.length - 1)];
-
-						var sustainNote:Note = new Note(daStrumTime + (Conductor.stepCrochet * susNote), daNoteData, oldNote, true);
-						sustainNote.mustPress = gottaHitNote;
-						sustainNote.gfNote = (section.gfSection && (songNotes[1]<4));
-						sustainNote.noteType = swagNote.noteType;
-						sustainNote.scrollFactor.set();
-						sustainNote.parent = swagNote;
-						unspawnNotes.push(sustainNote);
-						swagNote.tail.push(sustainNote);
-
-						sustainNote.correctionOffset = swagNote.height / 2;
-						if(!PlayState.isPixelStage)
-						{
-							if(oldNote.isSustainNote)
-							{
-								oldNote.scale.y *= Note.SUSTAIN_SIZE / oldNote.frameHeight;
-								oldNote.scale.y /= playbackRate;
-								oldNote.updateHitbox();
-							}
-
-							if(ClientPrefs.data.downScroll)
-								sustainNote.correctionOffset = 0;
-						}
-						else if(oldNote.isSustainNote)
-						{
-							oldNote.scale.y /= playbackRate;
-							oldNote.updateHitbox();
-						}
-
-						if (sustainNote.mustPress) sustainNote.x += FlxG.width / 2; // general offset
-						else if(ClientPrefs.data.middleScroll)
-						{
-							sustainNote.x += 310;
-							if(daNoteData > 1) //Up and Right
-								sustainNote.x += FlxG.width / 2 + 25;
-						}
-					}
-				}
-
-				if (swagNote.mustPress)
-				{
-					swagNote.x += FlxG.width / 2; // general offset
-				}
-				else if(ClientPrefs.data.middleScroll)
-				{
-					swagNote.x += 310;
-					if(daNoteData > 1) //Up and Right
-					{
-						swagNote.x += FlxG.width / 2 + 25;
-					}
-				}
-
-				if(!noteTypes.contains(swagNote.noteType)) {
-					noteTypes.push(swagNote.noteType);
-				}
+				chartTimes.push(daStrumTime);
+				chartDataI.push(daNoteData);
+				chartPress.push(gottaHitNote);
+				chartSus.push(songNotes[2]);
+				chartGf.push(section.gfSection && (songNotes[1] < 4));
+				var nt:Dynamic = songNotes[3];
+				if (!Std.isOfType(nt, String)) nt = ChartingState.noteTypeList[nt]; //Backward compatibility + compatibility with Week 7 charts
+				chartType.push(nt);
+				if (!noteTypes.contains(nt)) noteTypes.push(nt);
 			}
 		}
+		{
+			var n:Int = chartTimes.length;
+			var order:Array<Int> = new Array<Int>();
+			for (i in 0...n) order.push(i);
+			order.sort(function(a:Int, b:Int):Int {
+				var ta:Float = chartTimes[a]; var tb:Float = chartTimes[b];
+				return ta < tb ? -1 : (ta > tb ? 1 : 0);
+			});
+			var t2:Array<Float> = []; var d2:Array<Int> = []; var p2:Array<Bool> = [];
+			var s2:Array<Float> = []; var g2:Array<Bool> = []; var ty2:Array<Dynamic> = [];
+			for (i in 0...n) {
+				var k:Int = order[i];
+				t2.push(chartTimes[k]); d2.push(chartDataI[k]); p2.push(chartPress[k]);
+				s2.push(chartSus[k]); g2.push(chartGf[k]); ty2.push(chartType[k]);
+			}
+			chartTimes = t2; chartDataI = d2; chartPress = p2;
+			chartSus = s2; chartGf = g2; chartType = ty2;
+		}
+		backend.PerfProbe.log('[谱面] 数据行=' + chartTimes.length + ' 窗口化生成开启');
 		for (event in songData.events) //Event Notes
 			for (i in 0...event[1].length)
 				makeEvent(event, i);
 
-		unspawnNotes.sort(sortByTime);
 		generatedMusic = true;
+	}
+
+	// 窗口化生成: 把数据行实例化为 Note(含 sustain 链) —— 逻辑=原全量构建的逐行版本
+	function makeChartNote(idx:Int):Void
+	{
+		var daStrumTime:Float = chartTimes[idx];
+		var daNoteData:Int = chartDataI[idx];
+		var gottaHitNote:Bool = chartPress[idx];
+
+		var oldNote:Note = null;
+		if (unspawnNotes.length > 0)
+			oldNote = unspawnNotes[unspawnNotes.length - 1];
+
+		var swagNote:Note = new Note(daStrumTime, daNoteData, oldNote);
+		swagNote.mustPress = gottaHitNote;
+		swagNote.sustainLength = chartSus[idx];
+		swagNote.gfNote = chartGf[idx];
+		swagNote.noteType = chartType[idx];
+		swagNote.scrollFactor.set();
+
+		unspawnNotes.push(swagNote);
+
+		final susLength:Float = swagNote.sustainLength / Conductor.stepCrochet;
+		final floorSus:Int = Math.floor(susLength);
+
+		if(floorSus > 0) {
+			for (susNote in 0...floorSus + 1)
+			{
+				oldNote = unspawnNotes[unspawnNotes.length - 1];
+
+				var sustainNote:Note = new Note(daStrumTime + (Conductor.stepCrochet * susNote), daNoteData, oldNote, true);
+				sustainNote.mustPress = gottaHitNote;
+				sustainNote.gfNote = chartGf[idx];
+				sustainNote.noteType = swagNote.noteType;
+				sustainNote.scrollFactor.set();
+				sustainNote.parent = swagNote;
+				unspawnNotes.push(sustainNote);
+				swagNote.tail.push(sustainNote);
+
+				sustainNote.correctionOffset = swagNote.height / 2;
+				if(!PlayState.isPixelStage)
+				{
+					if(oldNote.isSustainNote)
+					{
+						oldNote.scale.y *= Note.SUSTAIN_SIZE / oldNote.frameHeight;
+						oldNote.scale.y /= playbackRate;
+						oldNote.updateHitbox();
+					}
+
+					if(ClientPrefs.data.downScroll)
+						sustainNote.correctionOffset = 0;
+				}
+				else if(oldNote.isSustainNote)
+				{
+					oldNote.scale.y /= playbackRate;
+					oldNote.updateHitbox();
+				}
+
+				if (sustainNote.mustPress) sustainNote.x += FlxG.width / 2; // general offset
+				else if(ClientPrefs.data.middleScroll)
+				{
+					sustainNote.x += 310;
+					if(daNoteData > 1) //Up and Right
+						sustainNote.x += FlxG.width / 2 + 25;
+				}
+			}
+		}
+
+		if (swagNote.mustPress)
+		{
+			swagNote.x += FlxG.width / 2; // general offset
+		}
+		else if(ClientPrefs.data.middleScroll)
+		{
+			swagNote.x += 310;
+			if(daNoteData > 1) //Up and Right
+			{
+				swagNote.x += FlxG.width / 2 + 25;
+			}
+		}
 	}
 
 	// called only once per different event (Used for precaching)
@@ -1747,6 +1787,18 @@ class PlayState extends MusicBeatState
 			trace("RESET = True");
 		}
 		doDeathCheck();
+
+		// ===== 窗口化: 把接近的数据行实例化进 unspawnNotes(保持队列短小) =====
+		if (generatedMusic && chartIdx < chartTimes.length)
+		{
+			var preTime:Float = spawnTime * playbackRate + CHART_SPAWN_WINDOW;
+			if (songSpeed < 1) preTime /= songSpeed;
+			while (chartIdx < chartTimes.length && chartTimes[chartIdx] - Conductor.songPosition < preTime)
+			{
+				makeChartNote(chartIdx);
+				chartIdx++;
+			}
+		}
 
 		if (unspawnNotes[0] != null)
 		{
@@ -2344,6 +2396,13 @@ class PlayState extends MusicBeatState
 				if(daNote.strumTime < songLength - Conductor.safeZoneOffset) {
 					health -= 0.05 * healthLoss;
 				}
+			}
+			// 数据层: 尚未实例化的行同样参与结束扣血判定
+			var ci:Int = chartIdx;
+			while (ci < chartTimes.length) {
+				if (chartTimes[ci] < songLength - Conductor.safeZoneOffset)
+					health -= 0.05 * healthLoss;
+				ci++;
 			}
 
 			if(doDeathCheck()) {
