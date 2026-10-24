@@ -17,6 +17,8 @@
     "excludes": [
     "assets/shared/images/storymenu/*",
     "assets/shared/images/noteSkins/*",
+    "assets/shared/images/pixelUI/*",
+    "assets/shared/images/pixelUI/noteSkins/*",
     "assets/mobile/images/pauseButton.png",
     "assets/mobile/images/virtualpad/*",
     "assets/shared/images/characters/bfPixel.png",
