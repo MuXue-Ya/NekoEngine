@@ -3,6 +3,7 @@ package backend;
 import haxe.Timer;
 import flixel.FlxG;
 import flixel.FlxState;
+import flixel.graphics.FlxGraphic;
 
 #if sys
 import sys.FileSystem;
@@ -46,6 +47,7 @@ class PerfProbe
 	static var out:FileOutput = null;
 	static var filePath:String = null;
 	static var summariesSinceFlush:Int = 0;
+	static var lastBreakMs:Float = -100000;
 
 	public static function init():Void
 	{
@@ -120,6 +122,9 @@ class PerfProbe
 			secStartMs = now;
 			summariesSinceFlush++;
 			if (summariesSinceFlush >= 2) flush();	// 约2秒落盘一次
+
+			// 内存分解: 每10秒定位堆里的大头(普通贴图/ASTC/资源跟踪量)
+			if (now - lastBreakMs >= 10000) { lastBreakMs = now; pushMemBreakdown(now); }
 		}
 	}
 
@@ -216,5 +221,31 @@ class PerfProbe
 			name += '+' + ((sn != null) ? sn.substr(sn.lastIndexOf('.') + 1) : 'SubState');
 		}
 		return name;
+	}
+
+	// ===== 内存分解(每10秒): 普通BitmapData按RGBA估堆占用, ASTC只计张数(数据在显存) =====
+
+	static function pushMemBreakdown(nowMs:Float):Void
+	{
+		#if (cpp && mobile)
+		var texCnt:Int = 0;
+		var texMB:Float = 0;
+		var astcCnt:Int = 0;
+		@:privateAccess
+		for (key in FlxG.bitmap._cache.keys())
+		{
+			var g:FlxGraphic = FlxG.bitmap._cache.get(key);
+			if (g == null || g.bitmap == null) continue;
+			#if ASTC_SUPPORT
+			if (Std.isOfType(g.bitmap, backend.astcsupport.openfl.display.ASTCBitmapData)) { astcCnt++; continue; }
+			#end
+			texCnt++;
+			texMB += g.bitmap.width * g.bitmap.height * 4 / 1048576;
+		}
+		push('[' + fmt(nowMs) + '] 内存分解 普通贴图=' + texCnt + '张/' + Math.round(texMB)
+			+ 'MB ASTC=' + astcCnt + '张 跟踪图=' + Lambda.count(Paths.currentTrackedAssets)
+			+ ' 跟踪音=' + Lambda.count(Paths.currentTrackedSounds)
+			+ ' 曲=' + (states.PlayState.SONG != null ? states.PlayState.SONG.song : '-'));
+		#end
 	}
 }
