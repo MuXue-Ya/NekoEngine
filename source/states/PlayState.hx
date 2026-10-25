@@ -3172,6 +3172,10 @@ class PlayState extends MusicBeatState
 		#if FLX_PITCH FlxG.sound.music.pitch = 1; #end
 		Note.globalRgbShaders = [];
 		backend.NoteTypesConfig.clearNoteTypesData();
+		// 音频对象挂在全局 FlxG.sound.list 上, 不随状态销毁 —— 显式释放(PCM/AL缓冲)
+		if (vocals != null) { FlxG.sound.list.remove(vocals); vocals.destroy(); }
+		if (opponentVocals != null) { FlxG.sound.list.remove(opponentVocals); opponentVocals.destroy(); }
+		if (inst != null) { FlxG.sound.list.remove(inst); inst.destroy(); }
 		instance = null;
 		super.destroy();
 	}

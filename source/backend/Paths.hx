@@ -76,6 +76,9 @@ class Paths
 	// define the locally tracked assets
 	public static var localTrackedAssets:Array<String> = [];
 	public static function clearStoredMemory() {
+		// 先重置跟踪表: 否则上一状态的 Inst/Voices 等声音因 key 在表内而永远清不掉
+		localTrackedAssets = [];
+
 		// clear anything not in the tracked assets list
 		@:privateAccess
 		for (key in FlxG.bitmap._cache.keys())
@@ -102,7 +105,6 @@ class Paths
 		pathCache.clear();
 		fileExistsCache.clear();
 
-		localTrackedAssets = [];
 		#if !html5 openfl.Assets.cache.clear("songs"); #end
 	}
 

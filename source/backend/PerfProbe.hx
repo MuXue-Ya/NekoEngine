@@ -254,15 +254,15 @@ class PerfProbe
 	}
 
 	// 进程真实内存(VmRSS): 含音频PCM/GPU驱动等 hxcpp堆之外的开销, 差值=堆外占用
+	// 注意: /proc 文件 size=0, lime 按大小读会得到空串 —— 必须用 FileInput 流式读
 	static var rssFailLogged:Bool = false;
 
 	static function readRssMB():Float
 	{
 		#if (cpp && mobile)
-		// 优先 /proc/self/status 的 VmRSS; 失败再用 /proc/self/stat 的 rss 页数(字段24)
 		try
 		{
-			var s:String = sys.io.File.getContent('/proc/self/status');
+			var s:String = readProcFile('/proc/self/status');
 			var idx:Int = s.indexOf('VmRSS:');
 			if (idx >= 0)
 			{
@@ -277,7 +277,7 @@ class PerfProbe
 		catch (e:Dynamic) {}
 		try
 		{
-			var stat:String = sys.io.File.getContent('/proc/self/stat');
+			var stat:String = readProcFile('/proc/self/stat');
 			var closeIdx:Int = stat.lastIndexOf(')');
 			if (closeIdx >= 0)
 			{
@@ -297,5 +297,13 @@ class PerfProbe
 		}
 		#end
 		return -1;
+	}
+
+	static function readProcFile(path:String):String
+	{
+		var input:sys.io.FileInput = sys.io.File.read(path, false);
+		var bytes = input.readAll();
+		input.close();
+		return bytes.toString();
 	}
 }
