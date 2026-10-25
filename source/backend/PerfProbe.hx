@@ -49,6 +49,18 @@ class PerfProbe
 	static var summariesSinceFlush:Int = 0;
 	static var lastBreakMs:Float = -100000;
 
+	// 段级聚合(状态切换时输出小结) + 全场累计
+	static var segStartMs:Float = 0;
+	static var segFrames:Int = 0;
+	static var segMemPeak:Float = 0;
+	static var segJudgeN:Int = 0;
+	static var segJudgeSum:Float = 0;
+	static var segJudgeMiss:Int = 0;
+	static var gcTotalMB:Float = 0;
+	static var gcTotalCnt:Int = 0;
+	static var spikeTotal:Int = 0;
+	static var spikeMaxMs:Int = 0;
+
 	public static function init():Void
 	{
 		#if (sys && mobile)
@@ -58,7 +70,9 @@ class PerfProbe
 			if (!FileSystem.exists(dir)) FileSystem.createDirectory(dir);
 			filePath = dir + '/perf_log.txt';
 			File.saveContent(filePath, '');	// 每次启动重建, 一份日志对应一次运行
-			push('=== PerfProbe 启动 ===');
+			push('════════ NekoEngine 性能日志 ════════');
+			pushBootInfo();
+			push('════════════════════════');
 			flush();
 		}
 		catch (e:Dynamic)
@@ -69,6 +83,42 @@ class PerfProbe
 		#end
 	}
 
+	// 启动头: 设备/系统/屏幕/内存/引擎, 以后日志一眼认出环境
+	static function pushBootInfo():Void
+	{
+		#if android
+		try
+		{
+			var model:String = lime.utils.JNI.getStaticField('android/os/Build', 'MODEL', 'Ljava/lang/String;');
+			var ver:String = lime.utils.JNI.getStaticField('android/os/Build$VERSION', 'RELEASE', 'Ljava/lang/String;');
+			if (model != null && model.length > 0)
+				push('设备: ' + model + '  |  Android ' + (ver != null ? ver : '?'));
+		}
+		catch (e:Dynamic) {}
+		#end
+		try
+		{
+			var w:Int = FlxG.stage.application.window.width;
+			var h:Int = FlxG.stage.application.window.height;
+			var hz:Float = FlxG.stage.application.window.displayMode.refreshRate;
+			push('屏幕: ' + w + 'x' + h + ' @' + Math.round(hz) + 'Hz');
+		}
+		catch (e2:Dynamic) {}
+		try
+		{
+			var mi:String = readProcFile('/proc/meminfo');
+			var idx:Int = mi.indexOf('MemTotal:');
+			if (idx >= 0)
+			{
+				var endIdx:Int = mi.indexOf('kB', idx);
+				var kb:Float = Std.parseFloat(mi.substr(idx + 9, endIdx - idx - 9));
+				if (!Math.isNaN(kb) && kb > 0) push('总内存: ' + Math.round(kb / 1048576) + 'GB');
+			}
+		}
+		catch (e3:Dynamic) {}
+		push('引擎: Psych Engine 0.7.3 (NekoEngine 安卓移植)');
+	}
+
 	// ===== 每帧钩子(由 Main.hx 注册到 FlxG.signals) =====
 
 	public static function onPreUpdate():Void
@@ -77,6 +127,7 @@ class PerfProbe
 		var now:Float = Timer.stamp() * 1000;
 		if (startMs <= 0) startMs = now;
 		if (secStartMs <= 0) secStartMs = now;
+		if (segStartMs <= 0) segStartMs = now;
 
 		if (lastPreMs > 0)
 		{
@@ -85,6 +136,8 @@ class PerfProbe
 			{
 				push('[' + fmt(now) + '] ⚡尖帧 ' + Math.round(frameMs) + 'ms @' + shortState(curStateName()));
 				spikeSec++;
+				spikeTotal++;
+				if (Math.round(frameMs) > spikeMaxMs) spikeMaxMs = Math.round(frameMs);
 			}
 		}
 		lastPreMs = now;
@@ -95,6 +148,7 @@ class PerfProbe
 		var st:FlxState = FlxG.state;
 		if (st != lastStateRef)
 		{
+			if (lastStateRef != null) pushSegSummary(now);
 			if (lastStateRef != null) push('════ 状态: ' + shortState(curStateName()) + ' ════');
 			lastStateRef = st;
 		}
@@ -116,18 +170,34 @@ class PerfProbe
 			var judgeLine:String = '';
 			if (judgeCount > 0)
 			{
-				judgeLine = ' 判定=' + judgeCount + ' 均差=' + (judgeSum >= 0 ? '+' : '') + Math.round(judgeSum / judgeCount)
-					+ 'ms [准' + judgeBuckets[2] + ' 早' + (judgeBuckets[3] + judgeBuckets[4])
+				var jAvg:Float = judgeSum / judgeCount;
+				var jArrow:String = (jAvg > 20) ? '→' : ((jAvg < -20) ? '←' : '');
+				judgeLine = ' 判定=' + judgeCount + ' 均差=' + (jAvg >= 0 ? '+' : '') + Math.round(jAvg)
+					+ 'ms' + jArrow + ' [准' + judgeBuckets[2] + ' 早' + (judgeBuckets[3] + judgeBuckets[4])
 					+ ' 晚' + (judgeBuckets[1] + judgeBuckets[0]) + ']';
 				if (judgeMissCount > 0) judgeLine += ' miss=' + judgeMissCount;
 			}
 			else if (judgeMissCount > 0) judgeLine = ' 判定 miss=' + judgeMissCount;
 
+			// fps 徽章: 满帧✓ / 掉帧⚠ / 严重✗ (60为音游基准线)
+			var fpsVal:Int = Math.round(secFrames / sec);
+			var badge:String = (fpsVal >= 50) ? '✓' : ((fpsVal >= 25) ? '⚠' : '✗');
+
 			push('[' + fmt(now) + '] ' + padState(shortState(curStateName()))
-				+ ' fps=' + StringTools.lpad('' + Math.round(secFrames / sec), ' ', 3)
+				+ ' fps=' + StringTools.lpad('' + fpsVal, ' ', 3) + badge
 				+ ' upd ' + r1(updAvg) + 'ms(峰' + r1(updMax) + ')'
 				+ ' draw ' + r1(drawAvg) + 'ms(峰' + r1(drawMax) + ')'
 				+ ' GC' + gcSec + memLine + driftLine() + judgeLine);
+
+			// 段级累加(清零前)
+			segFrames += secFrames;
+			#if cpp
+			if (usageMB > segMemPeak) segMemPeak = usageMB;
+			#end
+			segJudgeN += judgeCount;
+			segJudgeSum += judgeSum;
+			segJudgeMiss += judgeMissCount;
+
 			secFrames = 0; updSum = 0; updMax = 0; drawSum = 0; drawMax = 0;
 			gcSec = 0; spikeSec = 0;
 			judgeCount = 0; judgeMissCount = 0; judgeSum = 0;
@@ -139,6 +209,30 @@ class PerfProbe
 			// 内存分解: 每10秒定位堆里的大头(普通贴图/ASTC/资源跟踪量)
 			if (now - lastBreakMs >= 10000) { lastBreakMs = now; pushMemBreakdown(now); }
 		}
+	}
+
+	// 段小结: 一个状态结束时输出该段整体表现 + 全场累计
+	static function pushSegSummary(now:Float):Void
+	{
+		var segSec:Float = (now - segStartMs) / 1000;
+		if (segStartMs <= 0 || segSec < 3) return;	// 段太短(切屏抖动)不输出
+
+		var line:String = '── ' + padState(shortState(curStateName())) + ' 小结 '
+			+ Math.round(segSec) + 's | fps均' + Math.round(segFrames / Math.max(1, segSec))
+			+ ' | mem峰 ' + Math.round(segMemPeak) + 'MB';
+		if (segJudgeN > 0)
+		{
+			var avg:Float = segJudgeSum / segJudgeN;
+			line += ' | 判定' + segJudgeN + ' 均差' + (avg >= 0 ? '+' : '') + Math.round(avg) + 'ms'
+				+ (avg > 20 ? '→' : (avg < -20 ? '←' : ''))
+				+ ' miss' + segJudgeMiss;
+		}
+		if (gcTotalCnt > 0) line += ' | GC' + gcTotalCnt + '次-' + Math.round(gcTotalMB) + 'MB';
+		if (spikeTotal > 0) line += ' | 尖帧' + spikeTotal + '(峰' + spikeMaxMs + 'ms)';
+		push(line + ' ──');
+
+		segStartMs = now; segFrames = 0; segMemPeak = 0;
+		segJudgeN = 0; segJudgeSum = 0; segJudgeMiss = 0;
 	}
 
 	public static function onPostUpdate():Void
@@ -171,6 +265,8 @@ class PerfProbe
 	{
 		if (!enabled) return;
 		gcSec++;
+		gcTotalCnt++;
+		gcTotalMB += dropBytes / 1048576;
 		push('[' + fmt(Timer.stamp() * 1000) + '] ▼GC -' + r1(dropBytes / 1048576)
 			+ 'MB (帧' + Math.round(frameMs) + 'ms) @' + shortState(curStateName()));
 	}
