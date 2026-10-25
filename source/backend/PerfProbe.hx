@@ -86,16 +86,18 @@ class PerfProbe
 	// 启动头: 设备/系统/屏幕/内存/引擎, 以后日志一眼认出环境
 	static function pushBootInfo():Void
 	{
-		#if android
+		// 设备信息走 /system/build.prop(普通文件全 Android 可读), 不依赖 JNI
 		try
 		{
-			var model:String = lime.utils.JNI.getStaticField('android/os/Build', 'MODEL', 'Ljava/lang/String;');
-			var ver:String = lime.utils.JNI.getStaticField('android/os/Build$VERSION', 'RELEASE', 'Ljava/lang/String;');
-			if (model != null && model.length > 0)
-				push('设备: ' + model + '  |  Android ' + (ver != null ? ver : '?'));
+			var prop:String = readProcFile('/system/build.prop');
+			var model:String = readPropLine(prop, 'ro.product.model');
+			var market:String = readPropLine(prop, 'ro.product.marketname');
+			var ver:String = readPropLine(prop, 'ro.build.version.release');
+			var line:String = '设备: ' + ((market != null && market.length > 0) ? market : model);
+			if (ver != null && ver.length > 0) line += '  |  Android ' + ver;
+			push(line);
 		}
 		catch (e:Dynamic) {}
-		#end
 		try
 		{
 			var w:Int = FlxG.stage.application.window.width;
@@ -449,6 +451,16 @@ class PerfProbe
 		var bytes = input.readAll();
 		input.close();
 		return bytes.toString();
+	}
+
+	// 从 build.prop 类文本取 key= 行的值
+	static function readPropLine(content:String, key:String):String
+	{
+		var idx:Int = content.indexOf(key + '=');
+		if (idx < 0) return null;
+		var endIdx:Int = content.indexOf('\n', idx);
+		if (endIdx < 0) endIdx = content.length;
+		return content.substr(idx + key.length + 1, endIdx - idx - key.length - 1);
 	}
 
 	// ===== 判定直方图(玩家击中偏差, 按秒聚合) =====
