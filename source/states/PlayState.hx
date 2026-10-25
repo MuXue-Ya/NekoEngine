@@ -2556,6 +2556,9 @@ class PlayState extends MusicBeatState
 
 	private function popUpScore(note:Note = null):Void
 	{
+		// 判定直方图: 带符号偏差(正=按早, 负=按晚), 除以速率与判定窗口同尺度; botplay 不计
+		if (!cpuControlled)
+			backend.PerfProbe.onJudge((note.strumTime - Conductor.songPosition) / playbackRate, false);
 		var noteDiff:Float = Math.abs(note.strumTime - Conductor.songPosition + ClientPrefs.data.ratingOffset);
 		vocals.volume = 1;
 
@@ -2916,6 +2919,7 @@ class PlayState extends MusicBeatState
 
 	function noteMissCommon(direction:Int, note:Note = null)
 	{
+		if (!cpuControlled) backend.PerfProbe.onJudge(0, true);	// 判定直方图: miss 计数
 		// score and data
 		var subtract:Float = 0.05;
 		if(note != null) subtract = note.missHealth;

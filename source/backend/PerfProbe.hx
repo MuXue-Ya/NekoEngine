@@ -83,7 +83,7 @@ class PerfProbe
 			frameMs = now - lastPreMs;
 			if (frameMs > 40 && frameMs < 5000 && spikeSec < 10)
 			{
-				push('[' + fmt(now) + '] 尖帧 ' + Math.round(frameMs) + 'ms state=' + curStateName());
+				push('[' + fmt(now) + '] ⚡尖帧 ' + Math.round(frameMs) + 'ms @' + shortState(curStateName()));
 				spikeSec++;
 			}
 		}
@@ -95,7 +95,7 @@ class PerfProbe
 		var st:FlxState = FlxG.state;
 		if (st != lastStateRef)
 		{
-			if (lastStateRef != null) push('[' + fmt(now) + '] 状态切换 -> ' + curStateName());
+			if (lastStateRef != null) push('════ 状态: ' + shortState(curStateName()) + ' ════');
 			lastStateRef = st;
 		}
 
@@ -110,15 +110,28 @@ class PerfProbe
 			// 内存分解: 实用(真数据) / 堆总量(实用+空闲+垃圾), 差值即 GC 策略的代价
 			var usageMB:Float = Math.round(cpp.vm.Gc.memInfo64(cpp.vm.Gc.MEM_INFO_USAGE) / 104857.6) / 10;
 			var rsvMB:Float = Math.round(cpp.vm.Gc.memInfo64(cpp.vm.Gc.MEM_INFO_RESERVED) / 104857.6) / 10;
-			memLine = ' mem=' + usageMB + '/' + rsvMB + 'MB';
+			memLine = ' mem ' + usageMB + '/' + rsvMB + 'MB';
 			#end
-			push('[' + fmt(now) + '] ' + curStateName()
-				+ ' fps=' + Math.round(secFrames / sec)
-				+ ' upd=' + r1(updAvg) + 'ms(峰' + r1(updMax) + ')'
-				+ ' draw=' + r1(drawAvg) + 'ms(峰' + r1(drawMax) + ')'
-				+ ' GC=' + gcSec + '次' + memLine + driftLine());
+			// 判定直方图(本秒玩家击中偏差分布)
+			var judgeLine:String = '';
+			if (judgeCount > 0)
+			{
+				judgeLine = ' 判定=' + judgeCount + ' 均差=' + (judgeSum >= 0 ? '+' : '') + Math.round(judgeSum / judgeCount)
+					+ 'ms [准' + judgeBuckets[2] + ' 早' + (judgeBuckets[3] + judgeBuckets[4])
+					+ ' 晚' + (judgeBuckets[1] + judgeBuckets[0]) + ']';
+				if (judgeMissCount > 0) judgeLine += ' miss=' + judgeMissCount;
+			}
+			else if (judgeMissCount > 0) judgeLine = ' 判定 miss=' + judgeMissCount;
+
+			push('[' + fmt(now) + '] ' + padState(shortState(curStateName()))
+				+ ' fps=' + StringTools.lpad('' + Math.round(secFrames / sec), ' ', 3)
+				+ ' upd ' + r1(updAvg) + 'ms(峰' + r1(updMax) + ')'
+				+ ' draw ' + r1(drawAvg) + 'ms(峰' + r1(drawMax) + ')'
+				+ ' GC' + gcSec + memLine + driftLine() + judgeLine);
 			secFrames = 0; updSum = 0; updMax = 0; drawSum = 0; drawMax = 0;
 			gcSec = 0; spikeSec = 0;
+			judgeCount = 0; judgeMissCount = 0; judgeSum = 0;
+			for (i in 0...judgeBuckets.length) judgeBuckets[i] = 0;
 			secStartMs = now;
 			summariesSinceFlush++;
 			if (summariesSinceFlush >= 2) flush();	// 约2秒落盘一次
@@ -158,8 +171,8 @@ class PerfProbe
 	{
 		if (!enabled) return;
 		gcSec++;
-		push('[' + fmt(Timer.stamp() * 1000) + '] GC -' + r1(dropBytes / 1048576)
-			+ 'MB 帧耗时=' + Math.round(frameMs) + 'ms state=' + curStateName());
+		push('[' + fmt(Timer.stamp() * 1000) + '] ▼GC -' + r1(dropBytes / 1048576)
+			+ 'MB (帧' + Math.round(frameMs) + 'ms) @' + shortState(curStateName()));
 	}
 
 	// ===== 外部日志入口(如触控诊断): 复用缓冲与约2秒落盘节奏 =====
@@ -211,6 +224,41 @@ class PerfProbe
 		return '' + (Math.round(v * 10) / 10);
 	}
 
+	// 状态名中文化(短名), 便于扫读
+	static function shortState(full:String):String
+	{
+		var s:String = full;
+		s = StringTools.replace(s, 'CustomFadeTransition', '过渡');
+		s = StringTools.replace(s, 'GameplayChangersSubstate', '玩法面板');
+		s = StringTools.replace(s, 'PauseSubState', '暂停');
+		s = StringTools.replace(s, 'GameoverState', '败北');
+		s = StringTools.replace(s, 'TitleState', '标题');
+		s = StringTools.replace(s, 'MainMenuState', '主菜单');
+		s = StringTools.replace(s, 'FreeplayState', '选曲');
+		s = StringTools.replace(s, 'StoryMenuState', '故事');
+		s = StringTools.replace(s, 'OptionsState', '设置');
+		s = StringTools.replace(s, 'PlayState', '打歌');
+		s = StringTools.replace(s, 'ChartingState', '编辑器');
+		s = StringTools.replace(s, 'State', '');
+		s = StringTools.replace(s, 'SubState', '');
+		return s;
+	}
+
+	// 按显示宽度补空格(中文算2列), 让各列对齐
+	static function padState(s:String, width:Int = 14):String
+	{
+		var w:Int = 0;
+		for (i in 0...s.length)
+		{
+			var c:Int = s.charCodeAt(i);
+			w += (c >= 0x2E80) ? 2 : 1;
+		}
+		if (w >= width) return s;
+		var out:String = s;
+		while (w < width) { out += ' '; w++; }
+		return out;
+	}
+
 	static inline function curStateName():String
 	{
 		var n:String = Type.getClassName(Type.getClass(FlxG.state));
@@ -245,11 +293,11 @@ class PerfProbe
 			texMB += g.bitmap.width * g.bitmap.height * 4 / 1048576;
 		}
 		var rssMB:Float = readRssMB();
-		var rssLine:String = (rssMB >= 0) ? ' rss=' + Math.round(rssMB) + 'MB(进程总)' : '';
-		push('[' + fmt(nowMs) + '] 内存分解 堆内贴图=' + texCnt + '张/' + Math.round(texMB)
-			+ 'MB GPU化=' + gpuCnt + '张 ASTC=' + astcCnt + '张 跟踪图=' + Lambda.count(Paths.currentTrackedAssets)
-			+ ' 跟踪音=' + Lambda.count(Paths.currentTrackedSounds)
-			+ ' 曲=' + (states.PlayState.SONG != null ? states.PlayState.SONG.song : '-') + rssLine);
+		push('[' + fmt(nowMs) + '] ⊞内存  堆内贴图 ' + texCnt + '张/' + Math.round(texMB)
+			+ 'MB | GPU化 ' + gpuCnt + ' | ASTC ' + astcCnt
+			+ ' | 跟踪 ' + Lambda.count(Paths.currentTrackedAssets) + '图/' + Lambda.count(Paths.currentTrackedSounds) + '音'
+			+ ' | rss ' + Math.round(rssMB) + 'MB'
+			+ ' | 曲 ' + (states.PlayState.SONG != null ? states.PlayState.SONG.song : '-'));
 		#end
 	}
 
@@ -305,6 +353,26 @@ class PerfProbe
 		var bytes = input.readAll();
 		input.close();
 		return bytes.toString();
+	}
+
+	// ===== 判定直方图(玩家击中偏差, 按秒聚合) =====
+	// 约定: rawDiff = note.strumTime - songPosition (正=按早, 负=按晚), 已除以 playbackRate 与判定窗口同尺度
+	static var judgeCount:Int = 0;
+	static var judgeMissCount:Int = 0;
+	static var judgeSum:Float = 0;
+	static var judgeBuckets:Array<Int> = [0,0,0,0,0];	// [晚>90, 晚45-90, ±45准, 早45-90, 早>90]
+
+	public static function onJudge(rawDiff:Float, miss:Bool = false):Void
+	{
+		if (!enabled) return;
+		if (miss) { judgeMissCount++; return; }
+		judgeCount++;
+		judgeSum += rawDiff;
+		if (rawDiff <= -90) judgeBuckets[0]++;
+		else if (rawDiff < -45) judgeBuckets[1]++;
+		else if (rawDiff <= 45) judgeBuckets[2]++;
+		else if (rawDiff <= 90) judgeBuckets[3]++;
+		else judgeBuckets[4]++;
 	}
 
 	// 音画时钟漂移: music.time(音频真实位置) - Conductor.songPosition(谱面时钟)
