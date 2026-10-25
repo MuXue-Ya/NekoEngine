@@ -149,7 +149,8 @@ class PauseSubState extends MusicBeatSubstate
 
 		#if mobile
 		addVirtualPad(PlayState.chartingMode ? 'LEFT_FULL' : 'UP_DOWN', 'A_B');
-		addVirtualPadCamera();
+		// 手柄直接挂 pageCam(恒等), 不再新建临时相机(省一张全屏画布, 且子状态销毁无需清理)
+		if (virtualPad != null) virtualPad.cameras = [pageCam];
 		#end
 
 		// 关键: 本子状态所有成员显式挂到恒等相机(默认会落在 camGame 上跟随相机偏移)

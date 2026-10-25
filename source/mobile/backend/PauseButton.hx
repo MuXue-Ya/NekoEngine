@@ -7,6 +7,7 @@ import openfl.display.BitmapData;
 import flixel.graphics.FlxGraphic;
 import flixel.graphics.frames.FlxAtlasFrames;
 import flixel.util.FlxDestroyUtil;
+import states.PlayState;
 
 /**
  * Pause? PAUSE!!
@@ -60,9 +61,10 @@ class PauseButton extends FlxSprite
 
 		this.onClick = onClick;
 
-		buttonCamera = new FlxCamera();
-		buttonCamera.bgColor.alpha = 0;
-		FlxG.cameras.add(buttonCamera, false);
+		// 复用 PlayState 的恒等相机(camOther), 不再自建全屏画布(约3.5MB); 仅在 PlayState 使用, 必然存在
+		buttonCamera = (PlayState.instance != null && PlayState.instance.camOther != null)
+			? PlayState.instance.camOther : new FlxCamera();
+		if (buttonCamera.bgColor.alpha != 0) buttonCamera.bgColor.alpha = 0;
 		this.cameras = [buttonCamera];
 
 		FlxG.signals.postUpdate.add(globalUpdate);
@@ -136,11 +138,17 @@ class PauseButton extends FlxSprite
 	{
 		#if mobile
 		FlxG.signals.postUpdate.remove(globalUpdate);
-		
+
 		if (buttonCamera != null)
 		{
-			FlxG.cameras.remove(buttonCamera);
-			buttonCamera = FlxDestroyUtil.destroy(buttonCamera);
+			// 复用 camOther 时不从相机列表移除也不销毁(PlayState 仍在用)
+			if (PlayState.instance != null && buttonCamera == PlayState.instance.camOther)
+				buttonCamera = null;
+			else
+			{
+				FlxG.cameras.remove(buttonCamera);
+				buttonCamera = FlxDestroyUtil.destroy(buttonCamera);
+			}
 		}
 		#end
 		

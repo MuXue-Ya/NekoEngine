@@ -603,7 +603,7 @@ class PlayState extends MusicBeatState
 			add(pauseButton);
 		}
 		
-		addMobileControls(false);
+		addMobileControls(false, camOther);	// 复用恒等相机, 省一张全屏画布
 		hitbox.visible = false;
 		#end
 		

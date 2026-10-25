@@ -39,6 +39,7 @@ class MusicBeatSubstate extends FlxSubState
 	
 	public var hitbox:MobileHitbox;
 	public var hitboxCam:FlxCamera;
+	public var hitboxCamOwned:Bool = true;	// false=复用外部相机(如 camOther), 清理时不销毁
 
     /**
 	 * Add the Virtual Pad to the screen.
@@ -51,13 +52,23 @@ class MusicBeatSubstate extends FlxSubState
 		add(virtualPad);
 	}
 	
-	public function addMobileControls(DefaultDrawTarget:Bool = false)
+	public function addMobileControls(DefaultDrawTarget:Bool = false, ?cameraOverride:FlxCamera)
 	{
 		hitbox = new MobileHitbox();
 
-		hitboxCam = new FlxCamera();
-		hitboxCam.bgColor.alpha = 0;
-		FlxG.cameras.add(hitboxCam, DefaultDrawTarget);
+		if (cameraOverride != null)
+		{
+			// 复用已有恒等相机(如 PlayState.camOther), 省一张全屏画布(约3.5MB)
+			hitboxCam = cameraOverride;
+			hitboxCamOwned = false;
+		}
+		else
+		{
+			hitboxCam = new FlxCamera();
+			hitboxCam.bgColor.alpha = 0;
+			FlxG.cameras.add(hitboxCam, DefaultDrawTarget);
+			hitboxCamOwned = true;
+		}
 
 		hitbox.cameras = [hitboxCam];
 		hitbox.visible = false;
@@ -101,8 +112,12 @@ class MusicBeatSubstate extends FlxSubState
 
 		if(hitboxCam != null)
 		{
-			FlxG.cameras.remove(hitboxCam);
-			hitboxCam = FlxDestroyUtil.destroy(hitboxCam);
+			if (hitboxCamOwned)
+			{
+				FlxG.cameras.remove(hitboxCam);
+				hitboxCam = FlxDestroyUtil.destroy(hitboxCam);
+			}
+			else hitboxCam = null;	// 复用的相机不销毁
 		}
 	}
 
