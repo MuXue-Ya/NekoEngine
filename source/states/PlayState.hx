@@ -1748,7 +1748,15 @@ class PlayState extends MusicBeatState
 		updateIconsPosition();
 
 		if (startedCountdown && !paused)
+		{
 			Conductor.songPosition += FlxG.elapsed * 1000 * playbackRate;
+
+			// 音画对齐: 谱面时钟为纯积分, 与音频时钟存在固定起点差(实测约100ms, 音符视觉晚到->判定全偏)
+			// 偏差超过半个sick窗口(50ms)时硬对齐到音频时钟; 两者速率一致, 通常只需触发一次
+			if (!startingSong && updateTime && FlxG.sound.music != null && FlxG.sound.music.playing
+				&& Math.abs(FlxG.sound.music.time - Conductor.songPosition) > 50)
+				Conductor.songPosition = FlxG.sound.music.time;
+		}
 
 		if (startingSong)
 		{
