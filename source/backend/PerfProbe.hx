@@ -313,7 +313,8 @@ class PerfProbe
 	{
 		#if (cpp && mobile)
 		var ps = states.PlayState.instance;
-		if (ps == null || !ps.generatedMusic || FlxG.sound.music == null || !FlxG.sound.music.playing) return '';
+		if (ps == null || FlxG.sound.music == null || !FlxG.sound.music.playing) return '';
+		@:privateAccess if (!ps.generatedMusic) return '';
 		var drift:Float = FlxG.sound.music.time - Conductor.songPosition;
 		return ' drift=' + Math.round(drift) + 'ms rate=' + r1(ps.playbackRate);
 		#end
