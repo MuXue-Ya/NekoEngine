@@ -116,7 +116,7 @@ class PerfProbe
 				+ ' fps=' + Math.round(secFrames / sec)
 				+ ' upd=' + r1(updAvg) + 'ms(峰' + r1(updMax) + ')'
 				+ ' draw=' + r1(drawAvg) + 'ms(峰' + r1(drawMax) + ')'
-				+ ' GC=' + gcSec + '次' + memLine);
+				+ ' GC=' + gcSec + '次' + memLine + driftLine());
 			secFrames = 0; updSum = 0; updMax = 0; drawSum = 0; drawMax = 0;
 			gcSec = 0; spikeSec = 0;
 			secStartMs = now;
@@ -305,5 +305,18 @@ class PerfProbe
 		var bytes = input.readAll();
 		input.close();
 		return bytes.toString();
+	}
+
+	// 音画时钟漂移: music.time(音频真实位置) - Conductor.songPosition(谱面时钟)
+	// 正值=谱面时钟落后(音符会晚到), 持续增大=谱面被"放慢"的直接证据; rate=回放速度(gameplaySettings 持久化)
+	static function driftLine():String
+	{
+		#if (cpp && mobile)
+		var ps = states.PlayState.instance;
+		if (ps == null || !ps.generatedMusic || FlxG.sound.music == null || !FlxG.sound.music.playing) return '';
+		var drift:Float = FlxG.sound.music.time - Conductor.songPosition;
+		return ' drift=' + Math.round(drift) + 'ms rate=' + r1(ps.playbackRate);
+		#end
+		return '';
 	}
 }

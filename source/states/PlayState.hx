@@ -166,6 +166,7 @@ class PlayState extends MusicBeatState
 	public var chartGf:Array<Bool> = [];		// gfNote
 	public var chartType:Array<Dynamic> = [];	// noteType(原始 String/Int/null)
 	public var chartIdx:Int = 0;			// 下一个待实例化的行
+	public var chartStepCrochet:Float = 0;	// 构建期快照: sustain 间距不随中途 BPM/rate 变化(对齐原版全量生成)
 	public static inline var CHART_SPAWN_WINDOW:Float = 8000;	// 预生成窗口(ms), 覆盖 playbackRate/multSpeed 最坏情况
 
 	public var eventNotes:Array<EventNote> = [];
@@ -1355,6 +1356,7 @@ class PlayState extends MusicBeatState
 		}
 
 		// ===== 窗口化谱面: 数据层平铺(不实例化 Note), 按时间排序后滚动生成 =====
+		chartStepCrochet = Conductor.stepCrochet;	// 构建期快照(原版全量生成时即此值)
 		for (section in noteData)
 		{
 			for (songNotes in section.sectionNotes)
@@ -1421,7 +1423,7 @@ class PlayState extends MusicBeatState
 
 		unspawnNotes.push(swagNote);
 
-		final susLength:Float = swagNote.sustainLength / Conductor.stepCrochet;
+		final susLength:Float = swagNote.sustainLength / chartStepCrochet;
 		final floorSus:Int = Math.floor(susLength);
 
 		if(floorSus > 0) {
@@ -1429,7 +1431,7 @@ class PlayState extends MusicBeatState
 			{
 				oldNote = unspawnNotes[unspawnNotes.length - 1];
 
-				var sustainNote:Note = new Note(daStrumTime + (Conductor.stepCrochet * susNote), daNoteData, oldNote, true);
+				var sustainNote:Note = new Note(daStrumTime + (chartStepCrochet * susNote), daNoteData, oldNote, true);
 				sustainNote.mustPress = gottaHitNote;
 				sustainNote.gfNote = chartGf[idx];
 				sustainNote.noteType = swagNote.noteType;
