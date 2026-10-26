@@ -274,6 +274,24 @@ class PerfProbe
 		push(line);
 	}
 
+	// ===== 进歌耗时分解: 各阶段相对打点(点歌时 reset, 跨状态累计毫秒) =====
+
+	public static var loadMarkT0:Float = 0;
+
+	public static function loadMark(label:String):Void
+	{
+		#if (sys && mobile)
+		var now:Float = Timer.stamp() * 1000;
+		if (loadMarkT0 <= 0) loadMarkT0 = now;
+		push('[进歌] +' + r1(now - loadMarkT0) + 'ms ' + label);
+		#end
+	}
+
+	public static function loadMarkReset():Void
+	{
+		loadMarkT0 = 0;
+	}
+
 	// ===== 内部 =====
 
 	static function push(line:String):Void

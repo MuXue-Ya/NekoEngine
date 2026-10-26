@@ -47,13 +47,23 @@ class AudioPreload
 		return s;
 	}
 
+	/** 进歌时调用: 主线程即将自己解码, 后台线程立刻收工避免抢 IO(半成品按 want 清空自动丢弃) */
+	public static function cancel():Void
+	{
+		#if (cpp && mobile)
+		mutex.acquire();
+		want = '';
+		mutex.release();
+		#end
+	}
+
 	static function worker():Void
 	{
 		while (true)
 		{
 			mutex.acquire();
 			var target:String = want;
-			var needWork:Bool = !ready.exists('songs:$target/Inst');
+			var needWork:Bool = target.length > 0 && !ready.exists('songs:$target/Inst');
 			mutex.release();
 
 			if (needWork)
@@ -85,9 +95,9 @@ class AudioPreload
 				mutex.release();
 			}
 
-			// want 已就绪(或不存在)则收工; 换了新目标继续
+			// want 已就绪(或被 cancel 清空)则收工; 换了新目标继续
 			mutex.acquire();
-			var more:Bool = !ready.exists('songs:$want/Inst');
+			var more:Bool = want.length > 0 && !ready.exists('songs:$want/Inst');
 			if (!more) running = false;
 			mutex.release();
 			if (!more) return;

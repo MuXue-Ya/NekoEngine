@@ -326,6 +326,7 @@ class PlayState extends MusicBeatState
 		if (SONG == null)
 			SONG = Song.loadFromJson('tutorial');
 
+		backend.PerfProbe.loadMark('SONG 就绪(谱面已解析)');
 		Conductor.mapBPMChanges(SONG);
 		Conductor.bpm = SONG.bpm;
 
@@ -673,6 +674,7 @@ class PlayState extends MusicBeatState
 
 		super.create();
 		Paths.clearUnusedMemory();
+		backend.PerfProbe.loadMark('create 完成(含贴图缓存)');
 
 		if(eventNotes.length < 1) checkEventNote();
 	}
@@ -1290,6 +1292,9 @@ class PlayState extends MusicBeatState
 	private var eventsPushed:Array<String> = [];
 	private function generateSong(dataPath:String):Void
 	{
+		// 进歌起点: 停掉后台预载线程, 音频解码由主线程独占(避免 IO/CPU 竞争拖慢加载)
+		backend.AudioPreload.cancel();
+		backend.PerfProbe.loadMark('generateSong 开始');
 		// FlxG.log.add(ChartParser.parse());
 		songSpeed = PlayState.SONG.speed;
 		songSpeedType = ClientPrefs.getGameplaySetting('scrolltype');
@@ -1334,6 +1339,7 @@ class PlayState extends MusicBeatState
 		}
 		catch(e:Dynamic) {}
 		FlxG.sound.list.add(inst);
+		backend.PerfProbe.loadMark('inst/voices 解码完');
 
 		notes = new FlxTypedGroup<Note>();
 		noteGroup.add(notes);
@@ -1397,6 +1403,7 @@ class PlayState extends MusicBeatState
 			chartSus = s2; chartGf = g2; chartType = ty2;
 		}
 		backend.PerfProbe.log('[谱面] 数据行=' + chartTimes.length + ' 窗口化生成开启');
+		backend.PerfProbe.loadMark('谱面数据构建完');
 		for (event in songData.events) //Event Notes
 			for (i in 0...event[1].length)
 				makeEvent(event, i);
@@ -2494,7 +2501,9 @@ class PlayState extends MusicBeatState
 					FlxTransitionableState.skipNextTransOut = true;
 					prevCamFollow = camFollow;
 
+					backend.PerfProbe.loadMarkReset();
 					PlayState.SONG = Song.loadFromJson(PlayState.storyPlaylist[0] + difficulty, PlayState.storyPlaylist[0]);
+					backend.PerfProbe.loadMark('story 下一首 JSON解析完');
 					FlxG.sound.music.stop();
 
 					LoadingState.loadAndSwitchState(new PlayState());
