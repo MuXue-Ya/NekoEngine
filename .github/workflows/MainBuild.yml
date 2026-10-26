@@ -57,6 +57,24 @@ jobs:
           haxelib run astc-compressor compress-from-json -json ./astc-compression-data.json
           python3 scripts/astc_backfill.py
 
+      - name: Cache hxcpp build objects
+        uses: actions/cache@v4
+        with:
+          path: export/release/android/obj
+          # key 含源码 hash: 源码一变必 miss 全量重编(正确性保证);
+          # 源码没变时用 restore-keys 命中最近一次 obj -> 增量编译只编变化文件
+          key: hxcpp-obj-${{ github.run_id }}-${{ hashFiles('source/**/*.hx', 'Project.xml', 'hmm.json') }}
+          restore-keys: |
+            hxcpp-obj-${{ github.run_id }}-
+            hxcpp-obj-
+
+      - name: Normalize mtimes (incremental correctness)
+        # checkout 会把源文件 mtime 刷成当前时间 -> hxcpp 认为所有源都比缓存 obj 新而全量重编;
+        # 归一到 1970 使 obj(缓存恢复的 mtime) 新于源 -> 未变文件跳过编译。源内容一致性由上面 key 的 hash 保证。
+        run: |
+          find source -name "*.hx" -print0 | xargs -0 touch -d "@0"
+          touch -d "@0" Project.xml
+
       - name: Compile
         run: haxelib run lime build android -release
 
