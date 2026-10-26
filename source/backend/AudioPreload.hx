@@ -63,14 +63,14 @@ class AudioPreload
 				var voices:Sound = null;
 				try
 				{
-					var p:String = Paths.getPath('songs/$target/Inst.$SOUND_EXT', TEXT, 'songs');
+					var p:String = Paths.getPath('songs/$target/Inst.${Paths.SOUND_EXT}', null, 'songs');
 					p = p.substring(p.indexOf(':') + 1, p.length);
 					if (sys.FileSystem.exists(p)) inst = Sound.fromFile(p);
 				}
 				catch (e:Dynamic) {}
 				try
 				{
-					var p:String = Paths.getPath('songs/$target/Voices.$SOUND_EXT', TEXT, 'songs');
+					var p:String = Paths.getPath('songs/$target/Voices.${Paths.SOUND_EXT}', null, 'songs');
 					p = p.substring(p.indexOf(':') + 1, p.length);
 					if (sys.FileSystem.exists(p)) voices = Sound.fromFile(p);
 				}
