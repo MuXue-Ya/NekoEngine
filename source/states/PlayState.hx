@@ -170,6 +170,7 @@ class PlayState extends MusicBeatState
 	public static inline var CHART_SPAWN_WINDOW:Float = 8000;	// 预生成窗口(ms), 覆盖 playbackRate/multSpeed 最坏情况
 
 	public var eventNotes:Array<EventNote> = [];
+	public var evtIdx:Int = 0;			// 下一个待触发的事件行(索引推进, 替代 shift O(n))
 
 	public var camFollow:FlxObject;
 	private static var prevCamFollow:FlxObject;
@@ -2052,23 +2053,24 @@ class PlayState extends MusicBeatState
 		return false;
 	}
 
+	// 事件索引推进: 与谱面窗口化同模式, 事件多时避免每帧 shift 搬移 O(n)
 	public function checkEventNote() {
-		while(eventNotes.length > 0) {
-			var leStrumTime:Float = eventNotes[0].strumTime;
+		while(evtIdx < eventNotes.length) {
+			var leStrumTime:Float = eventNotes[evtIdx].strumTime;
 			if(Conductor.songPosition < leStrumTime) {
 				return;
 			}
 
 			var value1:String = '';
-			if(eventNotes[0].value1 != null)
-				value1 = eventNotes[0].value1;
+			if(eventNotes[evtIdx].value1 != null)
+				value1 = eventNotes[evtIdx].value1;
 
 			var value2:String = '';
-			if(eventNotes[0].value2 != null)
-				value2 = eventNotes[0].value2;
+			if(eventNotes[evtIdx].value2 != null)
+				value2 = eventNotes[evtIdx].value2;
 
-			triggerEvent(eventNotes[0].event, value1, value2, leStrumTime);
-			eventNotes.shift();
+			triggerEvent(eventNotes[evtIdx].event, value1, value2, leStrumTime);
+			evtIdx++;
 		}
 	}
 
@@ -2522,6 +2524,7 @@ class PlayState extends MusicBeatState
 		}
 		unspawnNotes = [];
 		eventNotes = [];
+		evtIdx = 0;
 	}
 
 	public var totalPlayed:Int = 0;

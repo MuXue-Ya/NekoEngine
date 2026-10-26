@@ -78,6 +78,7 @@ class Paths
 	public static function clearStoredMemory() {
 		// 先重置跟踪表: 否则上一状态的 Inst/Voices 等声音因 key 在表内而永远清不掉
 		localTrackedAssets = [];
+		gpuScaledCount = 0;
 
 		// clear anything not in the tracked assets list
 		@:privateAccess
@@ -255,6 +256,7 @@ class Paths
 	}
 
 	public static var currentTrackedAssets:Map<String, FlxGraphic> = [];
+	public static var gpuScaledCount:Int = 0;	// 本状态 GPU 化时被降采样的贴图数(PerfProbe 显示)
 	
 	static public function image(key:String, ?library:String = null, ?allowGPU:Bool = true):FlxGraphic
 	{
@@ -392,6 +394,24 @@ class Paths
 		var bigTex:Bool = bitmap.width * bitmap.height * 4 >= 2097152;
 		if (allowGPU && !isAstc && (ClientPrefs.data.cacheOnGPU || bigTex))
 		{
+			// 降采样兜底: 面积超 2048²(16MB GL) 的图上传前等比缩到 2048² 内
+			// 安卓统一内存下 GL 纹理计入 RSS(4096² RGBA=67MB/张); 屏幕仅 2267x1080, 2048 图集足够清晰
+			var glBytes:Float = bitmap.width * bitmap.height * 4;
+			if (glBytes > 16777216)
+			{
+				var sc:Float = Math.sqrt(16777216 / glBytes);
+				var nw:Int = Std.int(bitmap.width * sc);
+				var nh:Int = Std.int(bitmap.height * sc);
+				if (nw < 1) nw = 1;
+				if (nh < 1) nh = 1;
+				var scaled:BitmapData = new BitmapData(nw, nh, true, 0);
+				var mx:openfl.geom.Matrix = new openfl.geom.Matrix();
+				mx.scale(nw / bitmap.width, nh / bitmap.height);
+				scaled.draw(bitmap, mx, null, null, null, true);
+				bitmap.dispose();
+				bitmap = scaled;
+				gpuScaledCount++;
+			}
 			var texture:RectangleTexture = FlxG.stage.context3D.createRectangleTexture(bitmap.width, bitmap.height, BGRA, true);
 			texture.uploadFromBitmapData(bitmap);
             bitmap.image.data = null;
