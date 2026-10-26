@@ -192,17 +192,18 @@ class PlayState extends MusicBeatState
 	public var smoothHealth:Float = 1;
 	var smoothHealthOn:Bool = false;	// 平滑血条开关(玩法调整-平滑血条; 旧存档无此键视为开)
 	// ===== 图标挤压(源码移植挤压.lua): 按血量三档衰减振荡, miss 静止; x 定位仍由 updateIconsPosition 管理 =====
-	public var iconSquashT:Float = 0;
-	public var iconSquashAmp:Float = 0.3;
-	public var iconSquashFreq:Float = 18;
-	public var iconSquashDamp:Float = 7;
-	public var iconSwingAmp:Float = 0;
-	public var iconRotAmp:Float = 0;
-	public var iconRotFreq:Float = 0;
-	public var iconRestOffset:Float = 0;
-	public var iconCurRestOffset:Float = 0;
-	public var iconIsSquashing:Bool = false;
-	public var iconIsMissed:Bool = false;
+	// 双振荡器: [0]=玩家 [1]=对手; 对手血量与玩家互补(玩家 100% = 对手 0%), 档位按各自血量取
+	public var iconSquashT:Array<Float> = [0, 0];
+	public var iconSquashAmp:Array<Float> = [0.3, 0.3];
+	public var iconSquashFreq:Array<Float> = [18, 18];
+	public var iconSquashDamp:Array<Float> = [7, 7];
+	public var iconSwingAmp:Array<Float> = [0, 0];
+	public var iconRotAmp:Array<Float> = [0, 0];
+	public var iconRotFreq:Array<Float> = [0, 0];
+	public var iconRestOffset:Array<Float> = [0, 0];
+	public var iconCurRestOffset:Array<Float> = [0, 0];
+	public var iconIsSquashing:Array<Bool> = [false, false];
+	public var iconIsMissed:Bool = false;	// miss 静止(玩家行为, 双 icon 同停)
 	var iconBaseY1:Float = 0;
 	var iconBaseY2:Float = 0;
 	var iconBaseH1:Float = 0;
@@ -1962,21 +1963,22 @@ class PlayState extends MusicBeatState
 
 	// ===== 图标挤压: 源码移植挤压.lua =====
 
-	function startIconSquash(a:Float, f:Float, d:Float, sw:Float, rot:Float, rotF:Float, rest:Float):Void
+	function startIconSquash(idx:Int, a:Float, f:Float, d:Float, sw:Float, rot:Float, rotF:Float, rest:Float):Void
 	{
-		iconSquashAmp = a; iconSquashFreq = f; iconSquashDamp = d;
-		iconSwingAmp = sw; iconRotAmp = rot; iconRotFreq = rotF;
-		iconRestOffset = rest;
-		iconIsSquashing = true;
-		iconSquashT = 0;
+		iconSquashAmp[idx] = a; iconSquashFreq[idx] = f; iconSquashDamp[idx] = d;
+		iconSwingAmp[idx] = sw; iconRotAmp[idx] = rot; iconRotFreq[idx] = rotF;
+		iconRestOffset[idx] = rest;
+		iconIsSquashing[idx] = true;
+		iconSquashT[idx] = 0;
 	}
 
-	function startIconSquashByHp():Void
+	function startIconSquashByHp(idx:Int):Void
 	{
-		var hp:Float = health * 50;	// 0-2 -> 0-100%
-		if (hp > 80) startIconSquash(0.35, 22, 5, 0, 12, 14, -3);
-		else if (hp < 20) startIconSquash(0.50, 5, 12, 1.5, 0, 0, 7);
-		else startIconSquash(0.30, 18, 7, 0, 0, 0, 0);
+		// 玩家血量 0-100; 对手血量与玩家互补(玩家 100% = 对手 0%), 档位按各自血量取
+		var hp:Float = (idx == 0) ? health * 50 : 100 - health * 50;
+		if (hp > 80) startIconSquash(idx, 0.35, 22, 5, 0, 12, 14, -3);
+		else if (hp < 20) startIconSquash(idx, 0.50, 5, 12, 1.5, 0, 0, 7);
+		else startIconSquash(idx, 0.30, 18, 7, 0, 0, 0, 0);
 	}
 
 	function resetIconsSquash():Void
@@ -1999,11 +2001,10 @@ class PlayState extends MusicBeatState
 			iconBaseY2 = iconP2.y; iconBaseH2 = iconP2.height;
 		}
 
-		var hp:Float = health * 50;
 		if (iconIsMissed)
 		{
-			// miss 静止期间持续检查血量, 掉破 20% 立刻解除
-			if (hp < 20) { iconIsMissed = false; startIconSquashByHp(); }
+			// miss 静止期间持续检查血量, 玩家血量掉破 20% 立刻解除
+			if (health * 50 < 20) { iconIsMissed = false; startIconSquashByHp(0); startIconSquashByHp(1); }
 			else
 			{
 				iconP1.scale.set(1, 1); iconP1.angle = 0; iconP1.y = iconBaseY1;
@@ -2012,44 +2013,43 @@ class PlayState extends MusicBeatState
 			}
 		}
 
-		iconCurRestOffset += (iconRestOffset - iconCurRestOffset) * Math.min(1, 6 * elapsed);
-
-		if (!iconIsSquashing)
+		var sprs:Array<FlxSprite> = [iconP1, iconP2];
+		for (i in 0...2)
 		{
-			iconP1.scale.set(1, 1); iconP1.angle = 0;
-			iconP1.y = iconBaseY1 + iconCurRestOffset;
-			iconP2.scale.set(1, 1); iconP2.angle = 0;
-			iconP2.y = iconBaseY2 + iconCurRestOffset;
-			return;
-		}
+			var spr:FlxSprite = sprs[i];
+			var baseY:Float = (i == 0) ? iconBaseY1 : iconBaseY2;
+			var baseH:Float = (i == 0) ? iconBaseH1 : iconBaseH2;
 
-		iconSquashT += elapsed;
-		var env:Float = Math.exp(-iconSquashDamp * iconSquashT);
-		var osc:Float = Math.cos(iconSquashFreq * iconSquashT);
-		var mult:Float = 1 - iconSquashAmp * env * osc;
+			// 静止偏移缓动(低血下坠/满血上浮), 两组各自独立
+			iconCurRestOffset[i] += (iconRestOffset[i] - iconCurRestOffset[i]) * Math.min(1, 6 * elapsed);
 
-		var off1:Float = iconBaseH1 * (1 - mult) * 0.5;
-		var off2:Float = iconBaseH2 * (1 - mult) * 0.5;
-		var swing:Float = (iconSwingAmp > 0) ? Math.sin(iconSquashT * 80) * iconSwingAmp * env : 0;
-		var rot:Float = (iconRotAmp > 0) ? Math.sin(iconSquashT * iconRotFreq) * iconRotAmp * env : 0;
+			if (!iconIsSquashing[i])
+			{
+				spr.scale.set(1, 1); spr.angle = 0;
+				spr.y = baseY + iconCurRestOffset[i];
+				continue;
+			}
 
-		iconP1.scale.set(1, mult);
-		iconP1.updateHitbox();
-		iconP1.x += swing;
-		iconP1.y = iconBaseY1 + off1 + iconCurRestOffset;
-		iconP1.angle = rot;
+			iconSquashT[i] += elapsed;
+			var env:Float = Math.exp(-iconSquashDamp[i] * iconSquashT[i]);
+			var osc:Float = Math.cos(iconSquashFreq[i] * iconSquashT[i]);
+			var mult:Float = 1 - iconSquashAmp[i] * env * osc;
 
-		iconP2.scale.set(1, mult);
-		iconP2.updateHitbox();
-		iconP2.x += swing;
-		iconP2.y = iconBaseY2 + off2 + iconCurRestOffset;
-		iconP2.angle = -rot;
+			var off:Float = baseH * (1 - mult) * 0.5;
+			var swing:Float = (iconSwingAmp[i] > 0) ? Math.sin(iconSquashT[i] * 80) * iconSwingAmp[i] * env : 0;
+			var rot:Float = (iconRotAmp[i] > 0) ? Math.sin(iconSquashT[i] * iconRotFreq[i]) * iconRotAmp[i] * env : 0;
 
-		if (env < 0.01)
-		{
-			iconIsSquashing = false;
-			iconP1.scale.set(1, 1); iconP1.angle = 0;
-			iconP2.scale.set(1, 1); iconP2.angle = 0;
+			spr.scale.set(1, mult);
+			spr.updateHitbox();
+			spr.x += swing;
+			spr.y = baseY + off + iconCurRestOffset[i];
+			spr.angle = (i == 0) ? rot : -rot;	// 角度对称
+
+			if (env < 0.01)
+			{
+				iconIsSquashing[i] = false;
+				spr.scale.set(1, 1); spr.angle = 0;
+			}
 		}
 	}
 
@@ -3054,14 +3054,18 @@ class PlayState extends MusicBeatState
 	{
 		if (!cpuControlled) backend.PerfProbe.onJudge(0, true);	// 判定直方图: miss 计数
 
-		// 图标挤压: miss 静止(lua noteMiss); 低血量(<20%)不静止, 挤压继续
+		// 图标挤压: miss 静止(lua noteMiss); 玩家低血量(<20%)不静止, 挤压继续
 		if (health * 50 >= 20)
 		{
-			iconIsSquashing = false;
+			iconIsSquashing[0] = false;
+			iconIsSquashing[1] = false;
 			iconIsMissed = true;
-			iconSquashT = 0;
-			iconRestOffset = 0;
-			iconCurRestOffset = 0;
+			iconSquashT[0] = 0;
+			iconSquashT[1] = 0;
+			iconRestOffset[0] = 0;
+			iconRestOffset[1] = 0;
+			iconCurRestOffset[0] = 0;
+			iconCurRestOffset[1] = 0;
 			resetIconsSquash();
 		}
 		// score and data
@@ -3189,7 +3193,7 @@ class PlayState extends MusicBeatState
 		if(cpuControlled && note.ignoreNote) return;
 
 		// 图标挤压: 接住箭头解除 miss 静止(lua goodNoteHit)
-		if (iconIsMissed) { iconIsMissed = false; startIconSquashByHp(); }
+		if (iconIsMissed) { iconIsMissed = false; startIconSquashByHp(0); startIconSquashByHp(1); }
 
 		var isSus:Bool = note.isSustainNote; //GET OUT OF MY HEAD, GET OUT OF MY HEAD, GET OUT OF MY HEAD
 		var leData:Int = Math.round(Math.abs(note.noteData));
@@ -3379,8 +3383,8 @@ class PlayState extends MusicBeatState
 		if (generatedMusic)
 			notes.sort(FlxSort.byY, ClientPrefs.data.downScroll ? FlxSort.ASCENDING : FlxSort.DESCENDING);
 
-		// 图标挤压: 每拍按当前血量重新起振(lua onBeatHit); miss 静止期间跳过(原版 beat 弹跳已替代)
-		if (!iconIsMissed) startIconSquashByHp();
+		// 图标挤压: 每拍按各自血量起振(玩家/对手互补档位; miss 静止期间跳过; 原版 beat 弹跳已替代)
+		if (!iconIsMissed) { startIconSquashByHp(0); startIconSquashByHp(1); }
 
 		characterBopper(curBeat);
 
