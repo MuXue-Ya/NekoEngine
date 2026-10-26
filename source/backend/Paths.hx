@@ -221,6 +221,17 @@ class Paths
 	{
 		var songKey:String = '${formatToSongPath(song)}/Voices';
 		if(postfix != null) songKey += '-' + postfix;
+		// 选歌预载命中: 取走后台解码好的 Sound, 注册进正常缓存
+		#if (cpp && mobile)
+		var preV:Sound = backend.AudioPreload.take('songs:$songKey');
+		if (preV != null)
+		{
+			var gpV:String = '$songKey.$SOUND_EXT';
+			currentTrackedSounds.set(gpV, preV);
+			localTrackedAssets.push(gpV);
+			return preV;
+		}
+		#end
 		var voices = returnSound(null, songKey, 'songs');
 		return voices;
 	}
@@ -228,6 +239,17 @@ class Paths
 	inline static public function inst(song:String):Any
 	{
 		var songKey:String = '${formatToSongPath(song)}/Inst';
+		// 选歌预载命中: 取走后台解码好的 Sound, 注册进正常缓存
+		#if (cpp && mobile)
+		var preI:Sound = backend.AudioPreload.take('songs:$songKey');
+		if (preI != null)
+		{
+			var gpI:String = '$songKey.$SOUND_EXT';
+			currentTrackedSounds.set(gpI, preI);
+			localTrackedAssets.push(gpI);
+			return preI;
+		}
+		#end
 		var inst = returnSound(null, songKey, 'songs');
 		return inst;
 	}
@@ -365,9 +387,9 @@ class Paths
 		isAstc = StringTools.endsWith(file, '.astc');
 		#end
 
-		// 大图自动 GPU 化: 解码 >= 4MB 的贴图上传显存后丢弃 CPU 副本(不受 cacheOnGPU 开关影响)
+		// 大图自动 GPU 化: 解码 >= 2MB 的贴图上传显存后丢弃 CPU 副本(不受 cacheOnGPU 开关影响)
 		// 目标: mod 大图/excludes 未压缩图的堆占用; 小图维持原路径零风险; ASTC 本就零堆占用直接跳过
-		var bigTex:Bool = bitmap.width * bitmap.height * 4 >= 4194304;
+		var bigTex:Bool = bitmap.width * bitmap.height * 4 >= 2097152;
 		if (allowGPU && !isAstc && (ClientPrefs.data.cacheOnGPU || bigTex))
 		{
 			var texture:RectangleTexture = FlxG.stage.context3D.createRectangleTexture(bitmap.width, bitmap.height, BGRA, true);

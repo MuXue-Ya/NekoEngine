@@ -563,6 +563,9 @@ class FreeplayState extends MusicBeatState
 		PlayState.storyWeek = songs[curSelected].week;
 		Difficulty.loadFromWeek();
 
+		// 选歌预载: 后台线程预解码本曲音频, 点歌时 Paths.inst/voices 直接命中
+		backend.AudioPreload.preload(songs[curSelected].songName);
+
 		var savedDiff:String = songs[curSelected].lastDifficulty;
 		var lastDiff:Int = Difficulty.list.indexOf(lastDifficultyName);
 		if(savedDiff != null && !lastList.contains(savedDiff) && Difficulty.list.contains(savedDiff))
