@@ -293,7 +293,7 @@ class Paths
 				{
 					// 图集请求命中已降采样缓存: 移除重载原尺寸(帧坐标与原图集像素绑定, 缩放即错位)
 					currentTrackedAssets.remove(filePng);
-					FlxG.bitmap.remove(filePng);
+					FlxG.bitmap.removeByKey(filePng);
 					gpuScaledKeys.remove(filePng);
 				}
 				else
@@ -339,7 +339,7 @@ class Paths
 					{
 						// 图集请求命中已降采样缓存: 移除重载原尺寸(帧坐标与原图集像素绑定, 缩放即错位)
 						currentTrackedAssets.remove(pathPng);
-						FlxG.bitmap.remove(pathPng);
+						FlxG.bitmap.removeByKey(pathPng);
 						OpenFlAssets.cache.removeBitmapData(pathPng);
 						gpuScaledKeys.remove(pathPng);
 					}
