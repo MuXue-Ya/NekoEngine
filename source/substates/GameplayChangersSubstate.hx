@@ -97,6 +97,7 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 		optionsArray.push(new GameplayOption('Instakill on Miss', 'instakill', 'bool', false));
 		optionsArray.push(new GameplayOption('Practice Mode', 'practice', 'bool', false));
 		optionsArray.push(new GameplayOption('Botplay', 'botplay', 'bool', false));
+		optionsArray.push(new GameplayOption('Smooth Health Bar', 'smoothhealth', 'bool', true));
 	}
 
 	public function getOptionByName(name:String)
@@ -123,6 +124,7 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 			case 'Instakill on Miss': '一击必杀';
 			case 'Practice Mode': '练习模式';
 			case 'Botplay': '猫娘替你打喵';
+			case 'Smooth Health Bar': '平滑血条';
 			default: name;
 		}
 	}
