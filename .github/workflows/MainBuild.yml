@@ -61,19 +61,15 @@ jobs:
         uses: actions/cache@v4
         with:
           path: export/release/android/obj
-          # key 含源码 hash: 源码一变必 miss 全量重编(正确性保证);
-          # 源码没变时用 restore-keys 命中最近一次 obj -> 增量编译只编变化文件
-          key: hxcpp-obj-${{ github.run_id }}-${{ hashFiles('source/**/*.hx', 'Project.xml', 'hmm.json') }}
-          restore-keys: |
-            hxcpp-obj-${{ github.run_id }}-
-            hxcpp-obj-
+          # 精确 key, 无 restore-keys 前缀兜底: 源码/工程一变必 miss 全量重编(正确性保证);
+          # 源码没变(只改资产/文档)时 exact hit -> obj touch 未来 -> haxe 新生成的 cpp 全被跳过, 只链接打包
+          key: hxcpp-obj-${{ hashFiles('source/**/*.hx', 'Project.xml', 'hmm.json') }}
 
       - name: Normalize mtimes (incremental correctness)
-        # checkout 会把源文件 mtime 刷成当前时间 -> hxcpp 认为所有源都比缓存 obj 新而全量重编;
-        # 归一到 1970 使 obj(缓存恢复的 mtime) 新于源 -> 未变文件跳过编译。源内容一致性由上面 key 的 hash 保证。
+        # haxe 每次生成的 .cpp mtime=now, 恒新于缓存的 .o -> 必须把 obj 拉到未来才能让 hxcpp 跳过;
+        # 内容一致性由上面 key 的源码 hash 精确保证(源变则 miss, 不会编错)
         run: |
-          find source -name "*.hx" -print0 | xargs -0 touch -d "@0"
-          touch -d "@0" Project.xml
+          find export/release/android/obj -print0 2>/dev/null | xargs -0 touch -d "@$(( $(date +%s) + 21600 ))" || true
 
       - name: Compile
         run: haxelib run lime build android -release
