@@ -70,9 +70,9 @@ class PerfProbe
 			if (!FileSystem.exists(dir)) FileSystem.createDirectory(dir);
 			filePath = dir + '/perf_log.txt';
 			File.saveContent(filePath, '');	// 每次启动重建, 一份日志对应一次运行
-			push('════════ NekoEngine 性能日志 ════════');
+			push('=== PerfProbe 启动 ===');
 			pushBootInfo();
-			push('════════════════════════');
+			
 			flush();
 		}
 		catch (e:Dynamic)
@@ -151,11 +151,11 @@ class PerfProbe
 		if (st != lastStateRef)
 		{
 			if (lastStateRef != null) pushSegSummary(now);
-			if (lastStateRef != null) push('════ 状态: ' + shortState(curStateName()) + ' ════');
+			if (lastStateRef != null) push('--- 状态: ' + shortState(curStateName()) + ' ---');
 			lastStateRef = st;
 		}
 
-		// 按秒汇总
+			// 按秒汇总
 		if (now - secStartMs >= 1000)
 		{
 			var sec:Float = (now - secStartMs) / 1000;
@@ -166,30 +166,25 @@ class PerfProbe
 			// 内存分解: 实用(真数据) / 堆总量(实用+空闲+垃圾), 差值即 GC 策略的代价
 			var usageMB:Float = Math.round(cpp.vm.Gc.memInfo64(cpp.vm.Gc.MEM_INFO_USAGE) / 104857.6) / 10;
 			var rsvMB:Float = Math.round(cpp.vm.Gc.memInfo64(cpp.vm.Gc.MEM_INFO_RESERVED) / 104857.6) / 10;
-			memLine = ' mem ' + usageMB + '/' + rsvMB + 'MB';
+			memLine = ' mem=' + usageMB + '/' + rsvMB + 'MB';
 			#end
 			// 判定直方图(本秒玩家击中偏差分布)
 			var judgeLine:String = '';
 			if (judgeCount > 0)
 			{
 				var jAvg:Float = judgeSum / judgeCount;
-				var jArrow:String = (jAvg > 20) ? '→' : ((jAvg < -20) ? '←' : '');
 				judgeLine = ' 判定=' + judgeCount + ' 均差=' + (jAvg >= 0 ? '+' : '') + Math.round(jAvg)
-					+ 'ms' + jArrow + ' [准' + judgeBuckets[2] + ' 早' + (judgeBuckets[3] + judgeBuckets[4])
-					+ ' 晚' + (judgeBuckets[1] + judgeBuckets[0]) + ']';
+					+ 'ms 准=' + judgeBuckets[2] + ' 早=' + (judgeBuckets[3] + judgeBuckets[4])
+					+ ' 晚=' + (judgeBuckets[1] + judgeBuckets[0]);
 				if (judgeMissCount > 0) judgeLine += ' miss=' + judgeMissCount;
 			}
-			else if (judgeMissCount > 0) judgeLine = ' 判定 miss=' + judgeMissCount;
+			else if (judgeMissCount > 0) judgeLine = ' 判定miss=' + judgeMissCount;
 
-			// fps 徽章: 满帧✓ / 掉帧⚠ / 严重✗ (60为音游基准线)
-			var fpsVal:Int = Math.round(secFrames / sec);
-			var badge:String = (fpsVal >= 50) ? '✓' : ((fpsVal >= 25) ? '⚠' : '✗');
-
-			push('[' + fmt(now) + '] ' + padState(shortState(curStateName()))
-				+ ' fps=' + StringTools.lpad('' + fpsVal, ' ', 3) + badge
-				+ ' upd ' + r1(updAvg) + 'ms(峰' + r1(updMax) + ')'
-				+ ' draw ' + r1(drawAvg) + 'ms(峰' + r1(drawMax) + ')'
-				+ ' GC' + gcSec + memLine + driftLine() + judgeLine);
+			push('[' + fmt(now) + '] ' + shortState(curStateName())
+				+ '  fps=' + Math.round(secFrames / sec)
+				+ '  upd=' + r1(updAvg) + 'ms(峰' + r1(updMax) + ')'
+				+ '  draw=' + r1(drawAvg) + 'ms(峰' + r1(drawMax) + ')'
+				+ '  GC=' + gcSec + memLine + driftLine() + judgeLine);
 
 			// 段级累加(清零前)
 			segFrames += secFrames;
@@ -219,19 +214,18 @@ class PerfProbe
 		var segSec:Float = (now - segStartMs) / 1000;
 		if (segStartMs <= 0 || segSec < 3) return;	// 段太短(切屏抖动)不输出
 
-		var line:String = '── ' + padState(shortState(curStateName())) + ' 小结 '
-			+ Math.round(segSec) + 's | fps均' + Math.round(segFrames / Math.max(1, segSec))
-			+ ' | mem峰 ' + Math.round(segMemPeak) + 'MB';
+		var line:String = shortState(curStateName()) + ' 段小结: ' + Math.round(segSec) + 's'
+			+ '  fps均=' + Math.round(segFrames / Math.max(1, segSec))
+			+ '  mem峰=' + Math.round(segMemPeak) + 'MB';
 		if (segJudgeN > 0)
 		{
 			var avg:Float = segJudgeSum / segJudgeN;
-			line += ' | 判定' + segJudgeN + ' 均差' + (avg >= 0 ? '+' : '') + Math.round(avg) + 'ms'
-				+ (avg > 20 ? '→' : (avg < -20 ? '←' : ''))
-				+ ' miss' + segJudgeMiss;
+			line += ' 判定=' + segJudgeN + ' 均差=' + (avg >= 0 ? '+' : '') + Math.round(avg) + 'ms'
+				+ ' miss=' + segJudgeMiss;
 		}
-		if (gcTotalCnt > 0) line += ' | GC' + gcTotalCnt + '次-' + Math.round(gcTotalMB) + 'MB';
-		if (spikeTotal > 0) line += ' | 尖帧' + spikeTotal + '(峰' + spikeMaxMs + 'ms)';
-		push(line + ' ──');
+		if (gcTotalCnt > 0) line += '  GC=' + gcTotalCnt + '次-' + Math.round(gcTotalMB) + 'MB';
+		if (spikeTotal > 0) line += '  尖帧=' + spikeTotal + '(峰' + spikeMaxMs + 'ms)';
+		push('--- ' + line + ' ---');
 
 		segStartMs = now; segFrames = 0; segMemPeak = 0;
 		segJudgeN = 0; segJudgeSum = 0; segJudgeMiss = 0;
@@ -269,8 +263,8 @@ class PerfProbe
 		gcSec++;
 		gcTotalCnt++;
 		gcTotalMB += dropBytes / 1048576;
-		push('[' + fmt(Timer.stamp() * 1000) + '] ▼GC -' + r1(dropBytes / 1048576)
-			+ 'MB (帧' + Math.round(frameMs) + 'ms) @' + shortState(curStateName()));
+		push('[' + fmt(Timer.stamp() * 1000) + '] GC -' + r1(dropBytes / 1048576)
+			+ 'MB 帧耗时=' + Math.round(frameMs) + 'ms state=' + curStateName());
 	}
 
 	// ===== 外部日志入口(如触控诊断): 复用缓冲与约2秒落盘节奏 =====
@@ -322,7 +316,7 @@ class PerfProbe
 		return '' + (Math.round(v * 10) / 10);
 	}
 
-	// 状态名中文化(短名), 便于扫读
+	// 状态名中文短名
 	static function shortState(full:String):String
 	{
 		var s:String = full;
@@ -340,21 +334,6 @@ class PerfProbe
 		s = StringTools.replace(s, 'State', '');
 		s = StringTools.replace(s, 'SubState', '');
 		return s;
-	}
-
-	// 按显示宽度补空格(中文算2列), 让各列对齐
-	static function padState(s:String, width:Int = 14):String
-	{
-		var w:Int = 0;
-		for (i in 0...s.length)
-		{
-			var c:Int = s.charCodeAt(i);
-			w += (c >= 0x2E80) ? 2 : 1;
-		}
-		if (w >= width) return s;
-		var out:String = s;
-		while (w < width) { out += ' '; w++; }
-		return out;
 	}
 
 	static inline function curStateName():String
@@ -391,11 +370,11 @@ class PerfProbe
 			texMB += g.bitmap.width * g.bitmap.height * 4 / 1048576;
 		}
 		var rssMB:Float = readRssMB();
-		push('[' + fmt(nowMs) + '] ⊞内存  堆内贴图 ' + texCnt + '张/' + Math.round(texMB)
-			+ 'MB | GPU化 ' + gpuCnt + ' | ASTC ' + astcCnt
-			+ ' | 跟踪 ' + Lambda.count(Paths.currentTrackedAssets) + '图/' + Lambda.count(Paths.currentTrackedSounds) + '音'
-			+ ' | rss ' + Math.round(rssMB) + 'MB'
-			+ ' | 曲 ' + (states.PlayState.SONG != null ? states.PlayState.SONG.song : '-'));
+		push('[' + fmt(nowMs) + '] 内存分解 堆内贴图=' + texCnt + '张/' + Math.round(texMB)
+			+ 'MB GPU化=' + gpuCnt + ' ASTC=' + astcCnt + ' 跟踪图=' + Lambda.count(Paths.currentTrackedAssets)
+			+ ' 跟踪音=' + Lambda.count(Paths.currentTrackedSounds)
+			+ ' 曲=' + (states.PlayState.SONG != null ? states.PlayState.SONG.song : '-')
+			+ ' rss=' + Math.round(rssMB) + 'MB');
 		#end
 	}
 
