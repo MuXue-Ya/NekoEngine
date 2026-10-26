@@ -78,8 +78,6 @@ class Paths
 	public static function clearStoredMemory() {
 		// 先重置跟踪表: 否则上一状态的 Inst/Voices 等声音因 key 在表内而永远清不掉
 		localTrackedAssets = [];
-		gpuScaledCount = 0;
-		gpuScaledKeys = [];
 
 		// clear anything not in the tracked assets list
 		@:privateAccess
@@ -257,10 +255,8 @@ class Paths
 	}
 
 	public static var currentTrackedAssets:Map<String, FlxGraphic> = [];
-	public static var gpuScaledCount:Int = 0;	// 本状态 GPU 化时被降采样的贴图数(PerfProbe 显示)
-	public static var gpuScaledKeys:Map<String, Bool> = [];	// 被降采样的贴图 key(图集请求命中时必须重载原尺寸)
 	
-	static public function image(key:String, ?library:String = null, ?allowGPU:Bool = true, ?fromAtlas:Bool = false):FlxGraphic
+	static public function image(key:String, ?library:String = null, ?allowGPU:Bool = true):FlxGraphic
 	{
 		var bitmap:BitmapData = null;
 		var file:String = null;
@@ -286,21 +282,11 @@ class Paths
 		{
 			var filePng:String = modsImages(key);
 			var cachedPng = currentTrackedAssets.get(filePng);
-
+			
 			if (cachedPng != null)
 			{
-				if (fromAtlas && gpuScaledKeys.exists(filePng))
-				{
-					// 图集请求命中已降采样缓存: 移除重载原尺寸(帧坐标与原图集像素绑定, 缩放即错位)
-					currentTrackedAssets.remove(filePng);
-					FlxG.bitmap.removeByKey(filePng);
-					gpuScaledKeys.remove(filePng);
-				}
-				else
-				{
-					localTrackedAssets.push(filePng);
-					return cachedPng;
-				}
+				localTrackedAssets.push(filePng);
+				return cachedPng;
 			}
 			else if (FileSystem.exists(filePng))
 			{
@@ -335,19 +321,8 @@ class Paths
 				var cachedPathPng = currentTrackedAssets.get(pathPng);
 				if (cachedPathPng != null)
 				{
-					if (fromAtlas && gpuScaledKeys.exists(pathPng))
-					{
-						// 图集请求命中已降采样缓存: 移除重载原尺寸(帧坐标与原图集像素绑定, 缩放即错位)
-						currentTrackedAssets.remove(pathPng);
-						FlxG.bitmap.removeByKey(pathPng);
-						OpenFlAssets.cache.removeBitmapData(pathPng);
-						gpuScaledKeys.remove(pathPng);
-					}
-					else
-					{
-						localTrackedAssets.push(pathPng);
-						return cachedPathPng;
-					}
+					localTrackedAssets.push(pathPng);
+					return cachedPathPng;
 				}
 				else if (OpenFlAssets.exists(pathPng, IMAGE))
 				{
@@ -363,7 +338,7 @@ class Paths
 
 		if (bitmap != null)
 		{
-			var retVal = cacheBitmap(file, bitmap, allowGPU, fromAtlas);
+			var retVal = cacheBitmap(file, bitmap, allowGPU);
 			if (retVal != null) return retVal;
 		}
 
@@ -371,7 +346,7 @@ class Paths
 		return null;
 	}
 
-	static public function cacheBitmap(file:String, ?bitmap:BitmapData = null, ?allowGPU:Bool = true, ?fromAtlas:Bool = false)
+	static public function cacheBitmap(file:String, ?bitmap:BitmapData = null, ?allowGPU:Bool = true)
 	{
 		if(bitmap == null)
 		{
@@ -417,26 +392,6 @@ class Paths
 		var bigTex:Bool = bitmap.width * bitmap.height * 4 >= 2097152;
 		if (allowGPU && !isAstc && (ClientPrefs.data.cacheOnGPU || bigTex))
 		{
-			// 降采样兜底: 面积超 2048²(16MB GL) 的整图上传前等比缩到 2048² 内
-			// 安卓统一内存下 GL 纹理计入 RSS(4096² RGBA=67MB/张); 屏幕仅 2267x1080, 2048 足够清晰
-			// !! Sparrow/Packer 图集帧坐标与原图像素绑定, 图集用途(fromAtlas)必须跳过降采样(#90 角色错位事故)
-			var glBytes:Float = bitmap.width * bitmap.height * 4;
-			if (!fromAtlas && glBytes > 16777216)
-			{
-				var sc:Float = Math.sqrt(16777216 / glBytes);
-				var nw:Int = Std.int(bitmap.width * sc);
-				var nh:Int = Std.int(bitmap.height * sc);
-				if (nw < 1) nw = 1;
-				if (nh < 1) nh = 1;
-				var scaled:BitmapData = new BitmapData(nw, nh, true, 0);
-				var mx:openfl.geom.Matrix = new openfl.geom.Matrix();
-				mx.scale(nw / bitmap.width, nh / bitmap.height);
-				scaled.draw(bitmap, mx, null, null, null, true);
-				bitmap.dispose();
-				bitmap = scaled;
-				gpuScaledCount++;
-				gpuScaledKeys.set(file, true);
-			}
 			var texture:RectangleTexture = FlxG.stage.context3D.createRectangleTexture(bitmap.width, bitmap.height, BGRA, true);
 			texture.uploadFromBitmapData(bitmap);
             bitmap.image.data = null;
@@ -527,7 +482,7 @@ class Paths
 	static public function getAtlas(key:String, ?library:String = null, ?allowGPU:Bool = true):FlxAtlasFrames
 	{
 		var useMod = false;
-		var imageLoaded:FlxGraphic = image(key, library, allowGPU, true);
+		var imageLoaded:FlxGraphic = image(key, library, allowGPU);
 
 		var myXml:Dynamic = getPath('images/$key.xml', TEXT, library, true);
 		if(OpenFlAssets.exists(myXml) #if MODS_ALLOWED || (FileSystem.exists(myXml) && (useMod = true)) #end )
@@ -555,7 +510,7 @@ class Paths
 
 	inline static public function getSparrowAtlas(key:String, ?library:String = null, ?allowGPU:Bool = true):FlxAtlasFrames
 	{
-		var imageLoaded:FlxGraphic = image(key, library, allowGPU, true);
+		var imageLoaded:FlxGraphic = image(key, library, allowGPU);
 		#if MODS_ALLOWED
 		var xmlExists:Bool = false;
 
@@ -570,7 +525,7 @@ class Paths
 
 	inline static public function getPackerAtlas(key:String, ?library:String = null, ?allowGPU:Bool = true):FlxAtlasFrames
 	{
-		var imageLoaded:FlxGraphic = image(key, library, allowGPU, true);
+		var imageLoaded:FlxGraphic = image(key, library, allowGPU);
 		#if MODS_ALLOWED
 		var txtExists:Bool = false;
 		
@@ -585,7 +540,7 @@ class Paths
 
 	inline static public function getAsepriteAtlas(key:String, ?library:String = null, ?allowGPU:Bool = true):FlxAtlasFrames
 	{
-		var imageLoaded:FlxGraphic = image(key, library, allowGPU, true);
+		var imageLoaded:FlxGraphic = image(key, library, allowGPU);
 		#if MODS_ALLOWED
 		var jsonExists:Bool = false;
 

@@ -370,7 +370,7 @@ class PerfProbe
 			texMB += g.bitmap.width * g.bitmap.height * 4 / 1048576;
 		}
 		var rssMB:Float = readRssMB();
-		// 音频 PCM 驻留估算: lime Android 解码为 44.1kHz/16bit/立体声 ≈ 176.4 B/ms
+		// 音频 PCM 驻留估算: lime Android 解码为 44.1kHz/16bit/立体声 = 176.4 B/ms = 0.00016822 MB/ms
 		var audioCnt:Int = 0;
 		var audioMB:Float = 0;
 		@:privateAccess
@@ -378,19 +378,19 @@ class PerfProbe
 			if (FlxG.sound.music != null && FlxG.sound.music._sound != null)
 			{
 				audioCnt++;
-				audioMB += FlxG.sound.music._sound.length * 0.1764;
+				audioMB += FlxG.sound.music._sound.length * 0.00016822;
 			}
 			for (snd in FlxG.sound.list)
 			{
 				if (snd != null && snd._sound != null)
 				{
 					audioCnt++;
-					audioMB += snd._sound.length * 0.1764;
+					audioMB += snd._sound.length * 0.00016822;
 				}
 			}
 		}
 		push('[' + fmt(nowMs) + '] 内存分解 堆内贴图=' + texCnt + '张/' + Math.round(texMB)
-			+ 'MB GPU化=' + gpuCnt + ' 缩图=' + Paths.gpuScaledCount + ' ASTC=' + astcCnt
+			+ 'MB GPU化=' + gpuCnt + ' ASTC=' + astcCnt
 			+ ' 跟踪图=' + Lambda.count(Paths.currentTrackedAssets)
 			+ ' 跟踪音=' + Lambda.count(Paths.currentTrackedSounds)
 			+ ' 音频=' + audioCnt + '轨/~' + Math.round(audioMB) + 'MB'
