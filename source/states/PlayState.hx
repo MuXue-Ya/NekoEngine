@@ -1985,10 +1985,10 @@ class PlayState extends MusicBeatState
 	{
 		iconP1.scale.set(1, 1);
 		iconP1.angle = 0;
-		iconP1.y = iconBaseY1 + iconCurRestOffset;
+		iconP1.y = iconBaseY1 + iconCurRestOffset[0];
 		iconP2.scale.set(1, 1);
 		iconP2.angle = 0;
-		iconP2.y = iconBaseY2 + iconCurRestOffset;
+		iconP2.y = iconBaseY2 + iconCurRestOffset[1];
 	}
 
 	// 在 updateIconsPosition 之后调用: x 已被原版定位重置, swing 直接叠加不累积
