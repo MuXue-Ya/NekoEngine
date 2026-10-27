@@ -61,6 +61,13 @@ class PerfProbe
 	static var spikeTotal:Int = 0;
 	static var spikeMaxMs:Int = 0;
 
+	// 分配速率(批次E 归因): GC 回收量 + 堆增量 反推每秒分配(MB/s)
+	static var lastAllocUsageMB:Float = -1;
+	static var lastAllocMs:Float = 0;
+	static var gcFreedAccumMB:Float = 0;
+	static var allocSegMB:Float = 0;
+	static var allocSegSecs:Float = 0;
+
 	public static function init():Void
 	{
 		#if (sys && mobile)
@@ -167,6 +174,20 @@ class PerfProbe
 			var usageMB:Float = Math.round(cpp.vm.Gc.memInfo64(cpp.vm.Gc.MEM_INFO_USAGE) / 104857.6) / 10;
 			var rsvMB:Float = Math.round(cpp.vm.Gc.memInfo64(cpp.vm.Gc.MEM_INFO_RESERVED) / 104857.6) / 10;
 			memLine = ' mem=' + usageMB + '/' + rsvMB + 'MB';
+			// 分配速率: (GC回收 + 堆净增量)/时长 —— 尖帧归因的关键曲线
+			if (lastAllocUsageMB >= 0)
+			{
+				var dt:Float = (now - lastAllocMs) / 1000;
+				if (dt > 0.2)
+				{
+					var allocMB:Float = gcFreedAccumMB + (usageMB - lastAllocUsageMB);
+					if (allocMB < 0) allocMB = 0;
+					memLine += ' 分配=' + Math.round(allocMB / dt) + 'MB/s';
+					allocSegMB += allocMB;
+					allocSegSecs += dt;
+				}
+			}
+			lastAllocUsageMB = usageMB; lastAllocMs = now; gcFreedAccumMB = 0;
 			#end
 			// 判定直方图(本秒玩家击中偏差分布)
 			var judgeLine:String = '';
@@ -224,11 +245,13 @@ class PerfProbe
 				+ ' miss=' + segJudgeMiss;
 		}
 		if (gcTotalCnt > 0) line += '  GC=' + gcTotalCnt + '次-' + Math.round(gcTotalMB) + 'MB';
+		if (allocSegSecs > 3) line += '  分配均=' + Math.round(allocSegMB / allocSegSecs) + 'MB/s';
 		if (spikeTotal > 0) line += '  尖帧=' + spikeTotal + '(峰' + spikeMaxMs + 'ms)';
 		push('--- ' + line + ' ---');
 
 		segStartMs = now; segFrames = 0; segMemPeak = 0;
 		segJudgeN = 0; segJudgeSum = 0; segJudgeMiss = 0;
+		allocSegMB = 0; allocSegSecs = 0;
 	}
 
 	public static function onPostUpdate():Void
@@ -263,6 +286,7 @@ class PerfProbe
 		gcSec++;
 		gcTotalCnt++;
 		gcTotalMB += dropBytes / 1048576;
+		gcFreedAccumMB += dropBytes / 1048576;
 		push('[' + fmt(Timer.stamp() * 1000) + '] GC -' + r1(dropBytes / 1048576)
 			+ 'MB 帧耗时=' + Math.round(frameMs) + 'ms state=' + curStateName());
 	}

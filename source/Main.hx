@@ -56,6 +56,13 @@ class Main extends Sprite
 	{
 		super();
 
+		// ===== GC 调参(批次E): hxcpp 裸默认在 300-450MB 堆+10-20MB/s 分配率下 0.4-1.1s/次 GC(P90 暂停 43ms)≈尖帧风暴 =====
+		// 拉大余量换平滑: 预计 GC 频率降 5-10x; 代价=堆多占 100-300MB(5GB 机器可承受)
+		#if cpp
+		cpp.vm.Gc.setMinimumFreeSpace(48 * 1024 * 1024);	// 空闲低于 48MB 才触发 GC/扩堆(裸默认仅数 MB)
+		cpp.vm.Gc.setTargetFreeSpacePercentage(40);			// 扩堆时让空闲占堆 40%, 少扩几次
+		#end
+
         #if mobile
 		StorageSystem.getPermissions();
 		var __dataDir:String = StorageSystem.getDirectory();

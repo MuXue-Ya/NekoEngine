@@ -473,17 +473,20 @@ class PlayState extends MusicBeatState
 			gf.scrollFactor.set(0.95, 0.95);
 			gfGroup.add(gf);
 			startCharacterScripts(gf.curCharacter);
+			backend.PerfProbe.loadMark('角色 gf 构造完');
 		}
 
 		dad = new Character(0, 0, SONG.player2);
 		startCharacterPos(dad, true);
 		dadGroup.add(dad);
 		startCharacterScripts(dad.curCharacter);
+		backend.PerfProbe.loadMark('角色 dad 构造完');
 
 		boyfriend = new Character(0, 0, SONG.player1, true);
 		startCharacterPos(boyfriend);
 		boyfriendGroup.add(boyfriend);
 		startCharacterScripts(boyfriend.curCharacter);
+		backend.PerfProbe.loadMark('角色 bf 构造完');
 
 		var camPos:FlxPoint = FlxPoint.get(girlfriendCameraOffset[0], girlfriendCameraOffset[1]);
 		if(gf != null)
@@ -611,6 +614,7 @@ class PlayState extends MusicBeatState
 		uiGroup.cameras = [camHUD];
 		noteGroup.cameras = [camHUD];
 		comboGroup.cameras = [camHUD];
+		backend.PerfProbe.loadMark('HUD 骨架完');
 
 		startingSong = true;
 		
@@ -671,6 +675,7 @@ class PlayState extends MusicBeatState
 			}
 		}
 		#end
+		backend.PerfProbe.loadMark('谱面实例化完(兼容路径按需)');
 
 		#if LUA_ALLOWED
 		for (notetype in noteTypes)
@@ -710,6 +715,7 @@ class PlayState extends MusicBeatState
 				#end
 			}
 		#end
+		backend.PerfProbe.loadMark('lua 脚本加载完');
 
 		startCallback();
 		RecalculateRating();
@@ -733,6 +739,7 @@ class PlayState extends MusicBeatState
 
 		cacheCountdown();
 		cachePopUpScore();
+		backend.PerfProbe.loadMark('预载完(音效/字母/暂停曲)');
 
 		super.create();
 		Paths.clearUnusedMemory();
@@ -1375,15 +1382,91 @@ class PlayState extends MusicBeatState
 
 		vocals = new FlxSound();
 		opponentVocals = new FlxSound();
+		// ===== B1 并行解码: 主线程只解 Inst, vocals 走后台线程纯解码 =====
+		// Sound.fromFile 后台线程安全(#94 验证; 教训10: 不碰 Paths 全局缓存即可); 后台解不出的(嵌入资产)回退主线程原路径
+		var bgMutex:sys.thread.Mutex = new sys.thread.Mutex();
+		var bgDone:Bool = true;
+		var bgStarted:Bool = false;
+		var bgPlayer:openfl.media.Sound = null;
+		var bgPlain:openfl.media.Sound = null;
+		var bgOpp:openfl.media.Sound = null;
+		if (songData.needsVoices)
+		{
+			var songKeyB1:String = Paths.formatToSongPath(songData.song);
+			var playerPostfix:String = (boyfriend.vocalsFile == null || boyfriend.vocalsFile.length < 1) ? 'Player' : boyfriend.vocalsFile;
+			var oppPostfix:String = (dad.vocalsFile == null || dad.vocalsFile.length < 1) ? 'Opponent' : dad.vocalsFile;
+			var bgFiles:Array<String> = [];
+			var bgRoles:Array<Int> = [];	// 0=玩家声 1=无后缀兜底 2=对手声
+			var fP:String = Paths.songSoundFile(songKeyB1 + '/Voices-' + playerPostfix);
+			if (fP != null) { bgFiles.push(fP); bgRoles.push(0); }
+			else
+			{
+				var fPlain:String = Paths.songSoundFile(songKeyB1 + '/Voices');
+				if (fPlain != null) { bgFiles.push(fPlain); bgRoles.push(1); }
+			}
+			var fO:String = Paths.songSoundFile(songKeyB1 + '/Voices-' + oppPostfix);
+			if (fO != null) { bgFiles.push(fO); bgRoles.push(2); }
+
+			if (bgFiles.length > 0)
+			{
+				bgStarted = true;
+				bgDone = false;
+				sys.thread.Thread.create(function() {
+					for (i in 0...bgFiles.length)
+					{
+						var s:openfl.media.Sound = null;
+						try { s = openfl.media.Sound.fromFile(bgFiles[i]); }
+						catch (eBg:Dynamic) { s = null; }
+						bgMutex.acquire();
+						switch (bgRoles[i]) { case 0: bgPlayer = s; case 1: bgPlain = s; default: bgOpp = s; }
+						bgMutex.release();
+					}
+					bgMutex.acquire();
+					bgDone = true;
+					bgMutex.release();
+				});
+			}
+		}
+
+		// 主线程解 Inst —— 与后台 vocals 解码并行
+		inst = new FlxSound();
+		try {
+			inst.loadEmbedded(Paths.inst(songData.song));
+		}
+		catch(e:Dynamic) {}
+
+		// 等 vocals 后台解码完再挂载(通常此刻已就绪); 槽位为空回退主线程 Paths.voices(嵌入资产/解析分歧)
 		try
 		{
 			if (songData.needsVoices)
 			{
-				var playerVocals = Paths.voices(songData.song, (boyfriend.vocalsFile == null || boyfriend.vocalsFile.length < 1) ? 'Player' : boyfriend.vocalsFile);
-				vocals.loadEmbedded(playerVocals != null ? playerVocals : Paths.voices(songData.song));
-				
-				var oppVocals = Paths.voices(songData.song, (dad.vocalsFile == null || dad.vocalsFile.length < 1) ? 'Opponent' : dad.vocalsFile);
-				if(oppVocals != null) opponentVocals.loadEmbedded(oppVocals);
+				if (bgStarted)
+				{
+					while (true)
+					{
+						bgMutex.acquire();
+						var d:Bool = bgDone;
+						bgMutex.release();
+						if (d) break;
+						Sys.sleep(0.002);
+					}
+					bgMutex.acquire();
+					var pv:openfl.media.Sound = bgPlayer != null ? bgPlayer : bgPlain;
+					var ov:openfl.media.Sound = bgOpp;
+					bgMutex.release();
+					if (pv == null) pv = Paths.voices(songData.song, (boyfriend.vocalsFile == null || boyfriend.vocalsFile.length < 1) ? 'Player' : boyfriend.vocalsFile);
+					vocals.loadEmbedded(pv != null ? pv : Paths.voices(songData.song));
+					if (ov == null) ov = Paths.voices(songData.song, (dad.vocalsFile == null || dad.vocalsFile.length < 1) ? 'Opponent' : dad.vocalsFile);
+					if (ov != null) opponentVocals.loadEmbedded(ov);
+				}
+				else
+				{
+					// 后台没活干(嵌入资产歌曲): 主线程原路径
+					var playerVocals = Paths.voices(songData.song, (boyfriend.vocalsFile == null || boyfriend.vocalsFile.length < 1) ? 'Player' : boyfriend.vocalsFile);
+					vocals.loadEmbedded(playerVocals != null ? playerVocals : Paths.voices(songData.song));
+					var oppVocals = Paths.voices(songData.song, (dad.vocalsFile == null || dad.vocalsFile.length < 1) ? 'Opponent' : dad.vocalsFile);
+					if(oppVocals != null) opponentVocals.loadEmbedded(oppVocals);
+				}
 			}
 		}
 		catch(e:Dynamic) {}
@@ -1395,11 +1478,6 @@ class PlayState extends MusicBeatState
 		FlxG.sound.list.add(vocals);
 		FlxG.sound.list.add(opponentVocals);
 
-		inst = new FlxSound();
-		try {
-			inst.loadEmbedded(Paths.inst(songData.song));
-		}
-		catch(e:Dynamic) {}
 		FlxG.sound.list.add(inst);
 		backend.PerfProbe.loadMark('inst/voices 解码完');
 

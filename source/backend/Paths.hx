@@ -254,6 +254,17 @@ class Paths
 		return inst;
 	}
 
+	// ===== B1 并行解码支持: 仅解析歌曲音频真实路径(不解码/不进缓存, 线程安全) =====
+	// 只覆盖 mod 文件夹歌曲(可后台 Sound.fromFile); 嵌入 APK 资产返回 null(调用方回退主线程原路径)
+	public static function songSoundFile(songKey:String):String
+	{
+		#if MODS_ALLOWED
+		var file:String = modsSounds('songs', songKey);
+		if (FileSystem.exists(file)) return file;
+		#end
+		return null;
+	}
+
 	public static var currentTrackedAssets:Map<String, FlxGraphic> = [];
 	
 	static public function image(key:String, ?library:String = null, ?allowGPU:Bool = true):FlxGraphic
