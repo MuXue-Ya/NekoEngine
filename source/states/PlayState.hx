@@ -636,7 +636,42 @@ class PlayState extends MusicBeatState
 		addMobileControls(false, camOther);	// 复用恒等相机, 省一张全屏画布
 		hitbox.visible = false;
 		#end
-		
+
+		// ===== 窗口化兼容(旧式 mod 脚本): 带音符类型/事件脚本的谱面按原版全量实例化 =====
+		// 旧式脚本在 onCreate 里遍历 unspawnNotes(原版为全量), 窗口化下 create 阶段为空数组,
+		// 属性设置全部落空(表现为特殊箭头/事件 lua 失效)。检测到本谱存在此类脚本且谱面行数
+		// 在阈值内时, 在脚本加载前一次性全量实例化, 完整复现旧版语义; 无脚本谱面仍走窗口化省内存。
+		#if (LUA_ALLOWED || HSCRIPT_ALLOWED)
+		if (generatedMusic && chartTimes.length > 0 && chartTimes.length <= 4000)
+		{
+			var legacyFill:Bool = false;
+			#if MODS_ALLOWED
+			for (nt in noteTypes)
+				if (noteScriptExists('custom_notetypes/' + nt + '.lua') || noteScriptExists('custom_notetypes/' + nt + '.hx'))
+				{
+					legacyFill = true;
+					break;
+				}
+			if (!legacyFill)
+				for (ev in eventsPushed)
+					if (noteScriptExists('custom_events/' + ev + '.lua') || noteScriptExists('custom_events/' + ev + '.hx'))
+					{
+						legacyFill = true;
+						break;
+					}
+			#end
+			if (legacyFill)
+			{
+				while (chartIdx < chartTimes.length)
+				{
+					makeChartNote(chartIdx);
+					chartIdx++;
+				}
+				unspawnNotes.sort(sortByTime);
+			}
+		}
+		#end
+
 		#if LUA_ALLOWED
 		for (notetype in noteTypes)
 			startLuasNamed('custom_notetypes/' + notetype + '.lua');
@@ -3445,6 +3480,19 @@ class PlayState extends MusicBeatState
 		setOnScripts('curSection', curSection);
 		callOnScripts('onSectionHit');
 	}
+
+	#if (LUA_ALLOWED || HSCRIPT_ALLOWED)
+	public function noteScriptExists(relPath:String):Bool
+	{
+		#if MODS_ALLOWED
+		var p:String = Paths.modFolders(relPath);
+		if (!FileSystem.exists(p)) p = Paths.getSharedPath(relPath);
+		return FileSystem.exists(p);
+		#else
+		return OpenFlAssets.exists(Paths.getSharedPath(relPath));
+		#end
+	}
+	#end
 
 	#if LUA_ALLOWED
 	public function startLuasNamed(luaFile:String)
