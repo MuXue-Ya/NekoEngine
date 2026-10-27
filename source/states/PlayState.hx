@@ -1851,6 +1851,10 @@ class PlayState extends MusicBeatState
 				makeChartNote(chartIdx);
 				chartIdx++;
 			}
+			// 批量生成后按时间排序: sustain 链 piece 的 strumTime 会跨越后续行的本体时间,
+			// 不排序则 spawn 队列头被"未来"的 piece 卡住, 后续行延迟出现(长箭头之间出现断缝)
+			// 对齐原版: 全量生成后也有 unspawnNotes.sort(sortByTime)
+			unspawnNotes.sort(sortByTime);
 		}
 
 		if (unspawnNotes[0] != null)
