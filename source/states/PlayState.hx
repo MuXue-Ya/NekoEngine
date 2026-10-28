@@ -1865,6 +1865,11 @@ class PlayState extends MusicBeatState
 
 		super.update(elapsed);
 
+		// 粘性弹出超时: 停手后淡出(连打时不断刷新不清场; 暂停时 songPosition 冻结→弹出同步冻结)
+		if ((ratingSticky != null || comboSticky != null || numSticky.length > 0)
+			&& Conductor.songPosition >= stickyExpireAt)
+			stickyStartFade();
+
 		setOnScripts('curDecStep', curDecStep);
 		setOnScripts('curDecBeat', curDecBeat);
 
@@ -2851,25 +2856,41 @@ class PlayState extends MusicBeatState
 		popupPool.push(spr);
 	}
 
-	// ===== 乒乓球式弹出动画: 落下(加速)→撞地压扁→弹起(减速)→淡出回收; 允许堆叠, 各自独立完成 =====
-	function bouncePopup(spr:FlxSprite):Void
-	{
-		var groundY:Float = spr.y;
-		var bX:Float = spr.scale.x;
-		var bY:Float = spr.scale.y;
-		spr.y = groundY - 90;	// 从上方 90px 落下
+	// ===== 粘性弹出(comboStacking=开): 击中原地刷新, 停手超时淡出; 暂停时随 songPosition 冻结 =====
+	var ratingSticky:FlxSprite = null;
+	var comboSticky:FlxSprite = null;
+	var numSticky:Array<FlxSprite> = [];
+	var stickyExpireAt:Float = 0;
+	var stickyTimeoutMs:Float = 600;	// 停手多久开始淡出(可调 400-1000)
 
-		regPopupTween(spr, FlxTween.tween(spr, {y: groundY}, 0.13 / playbackRate, {ease: FlxEase.quadIn,
-			onComplete: function(t:FlxTween)
-			{
-				spr.scale.set(bX * 1.25, bY * 0.7);	// 撞地压扁
-				regPopupTween(spr, FlxTween.tween(spr.scale, {x: bX, y: bY}, 0.2 / playbackRate, {ease: FlxEase.backOut}));
-				regPopupTween(spr, FlxTween.tween(spr, {y: groundY - 45}, 0.16 / playbackRate, {ease: FlxEase.quadOut}));	// 弹起
-				regPopupTween(spr, FlxTween.tween(spr, {alpha: 0}, 0.2 / playbackRate, {
-					onComplete: function(t2:FlxTween) { recyclePopupSprite(spr); }
-				}));
-			}
-		}));
+	function clearSticky():Void
+	{
+		if (ratingSticky != null) { var s:FlxSprite = ratingSticky; ratingSticky = null; recyclePopupSprite(s); }
+		if (comboSticky != null) { var s:FlxSprite = comboSticky; comboSticky = null; recyclePopupSprite(s); }
+		while (numSticky.length > 0)
+		{
+			var s:FlxSprite = numSticky.pop();
+			if (s != null) recyclePopupSprite(s);
+		}
+	}
+
+	function stickyStartFade():Void
+	{
+		var group:Array<FlxSprite> = [];
+		if (ratingSticky != null) group.push(ratingSticky);
+		if (comboSticky != null) group.push(comboSticky);
+		for (tmpS in numSticky) if (tmpS != null) group.push(tmpS);
+		ratingSticky = null; comboSticky = null; numSticky = [];
+		for (tmpS in group)
+		{
+			var s:FlxSprite = tmpS;	// 循环体内重新声明, 闭包按次捕获
+			regPopupTween(s, FlxTween.tween(s, {alpha: 0}, 0.2 / playbackRate, {
+				onComplete: function(t:FlxTween)
+				{
+					recyclePopupSprite(s);
+				}
+			}));
+		}
 	}
 
 	private function popUpScore(note:Note = null):Void
@@ -2880,7 +2901,17 @@ class PlayState extends MusicBeatState
 		var noteDiff:Float = Math.abs(note.strumTime - Conductor.songPosition + ClientPrefs.data.ratingOffset);
 		vocals.volume = 1;
 
-		// 堆叠允许: 不清场, 每次击中独立弹出(落下→压扁→弹起→淡出), 互不干扰
+		var stickyMode:Bool = ClientPrefs.data.comboStacking;
+		if (stickyMode)
+			clearSticky();		// 粘性模式: 旧的立即回池, 原地刷新(任何时刻每类至多 1 个, 鬼影堆叠根除)
+		else if (comboGroup.members.length > 0) {
+			var ci:Int = comboGroup.members.length - 1;
+			while (ci >= 0) {
+				var spr:FlxSprite = cast comboGroup.members[ci];
+				if (spr != null) recyclePopupSprite(spr);
+				ci--;
+			}
+		}
 
 		var placement:Float = FlxG.width * 0.35;
 		var rating:FlxSprite = takePopupSprite();
@@ -2923,6 +2954,12 @@ class PlayState extends MusicBeatState
 		rating.screenCenter();
 		rating.x = placement - 40;
 		rating.y -= 60;
+		if (!stickyMode)
+		{
+			rating.acceleration.y = 550 * playbackRate * playbackRate;
+			rating.velocity.y -= FlxG.random.int(140, 175) * playbackRate;
+			rating.velocity.x -= FlxG.random.int(0, 10) * playbackRate;
+		}	// 粘性模式: 停住不动(take 已归零速度/重力), 击中刷新+Q弹, 停手超时淡出
 		rating.visible = (!ClientPrefs.data.hideHud && showRating);
 		rating.x += ClientPrefs.data.comboOffset[0];
 		rating.y -= ClientPrefs.data.comboOffset[1];
@@ -2932,11 +2969,18 @@ class PlayState extends MusicBeatState
 		comboSpr.loadGraphic(Paths.image(uiPrefix + 'combo' + uiSuffix));
 		comboSpr.screenCenter();
 		comboSpr.x = placement;
+		if (!stickyMode)
+		{
+			comboSpr.acceleration.y = FlxG.random.int(200, 300) * playbackRate * playbackRate;
+			comboSpr.velocity.y -= FlxG.random.int(140, 160) * playbackRate;
+		}
 		comboSpr.visible = (!ClientPrefs.data.hideHud && showCombo);
 		comboSpr.x += ClientPrefs.data.comboOffset[0];
 		comboSpr.y -= ClientPrefs.data.comboOffset[1];
 		comboSpr.antialiasing = antialias;
 		comboSpr.y += 60;
+		if (!stickyMode)
+			comboSpr.velocity.x += FlxG.random.int(1, 10) * playbackRate;
 		comboGroup.add(rating);
 
 		if (!PlayState.isPixelStage)
@@ -2953,9 +2997,20 @@ class PlayState extends MusicBeatState
 		comboSpr.updateHitbox();
 		rating.updateHitbox();
 
-		// 乒乓球: 落下→撞地压扁→弹起→淡出(堆叠允许, 各自独立)
-		bouncePopup(rating);
-		bouncePopup(comboSpr);
+		// Q弹: 随机初倾 + 果冻起手(横拉纵压), 弹性回正; 数字保持原版不倾斜
+		var rbX:Float = rating.scale.x;
+		var rbY:Float = rating.scale.y;
+		rating.angle = FlxG.random.float(-10, 10);
+		rating.scale.set(rbX * 1.3, rbY * 0.8);
+		regPopupTween(rating, FlxTween.tween(rating, {angle: 0}, 0.5 / playbackRate, {ease: FlxEase.elasticOut}));
+		regPopupTween(rating, FlxTween.tween(rating.scale, {x: rbX, y: rbY}, 0.45 / playbackRate, {ease: FlxEase.backOut}));
+
+		var cbX:Float = comboSpr.scale.x;
+		var cbY:Float = comboSpr.scale.y;
+		comboSpr.angle = FlxG.random.float(-10, 10);
+		comboSpr.scale.set(cbX * 1.3, cbY * 0.8);
+		regPopupTween(comboSpr, FlxTween.tween(comboSpr, {angle: 0}, 0.5 / playbackRate, {ease: FlxEase.elasticOut}));
+		regPopupTween(comboSpr, FlxTween.tween(comboSpr.scale, {x: cbX, y: cbY}, 0.45 / playbackRate, {ease: FlxEase.backOut}));
 
 		var seperatedScore:Array<Int> = [];
 
@@ -2983,18 +3038,58 @@ class PlayState extends MusicBeatState
 			else numScore.setGraphicSize(Std.int(numScore.width * daPixelZoom));
 			numScore.updateHitbox();
 
+			if (!stickyMode)
+			{
+				numScore.acceleration.y = FlxG.random.int(200, 300) * playbackRate * playbackRate;
+				numScore.velocity.y -= FlxG.random.int(140, 160) * playbackRate;
+				numScore.velocity.x = FlxG.random.float(-5, 5) * playbackRate;
+			}
 			numScore.visible = !ClientPrefs.data.hideHud;
 			numScore.antialiasing = antialias;
 
 			//if (combo >= 10 || combo == 0)
 			if(showComboNum)
 				comboGroup.add(numScore);
-			bouncePopup(numScore);	// 无论是否显示都走弹跳→回收, 防池泄漏
+
+			if (stickyMode)
+				numSticky.push(numScore);	// 粘性: 停住常驻, 超时统一淡出
+			else
+			{
+				regPopupTween(numScore, FlxTween.tween(numScore, {alpha: 0}, 0.2 / playbackRate, {
+					onComplete: function(tween:FlxTween)
+					{
+						recyclePopupSprite(numScore);
+					},
+					startDelay: Conductor.crochet * 0.002 / playbackRate
+				}));
+			}
 
 			daLoop++;
 			if(numScore.x > xThing) xThing = numScore.x;
 		}
 		comboSpr.x = xThing + 50;
+		if (stickyMode)
+		{
+			// 登记粘性实例 + 超时点: 停手 stickyTimeoutMs 后由 update 触发淡出
+			ratingSticky = rating;
+			comboSticky = comboSpr;
+			stickyExpireAt = Conductor.songPosition + stickyTimeoutMs / playbackRate;
+		}
+		else
+		{
+			regPopupTween(rating, FlxTween.tween(rating, {alpha: 0}, 0.2 / playbackRate, {
+				startDelay: Conductor.crochet * 0.001 / playbackRate
+			}));
+
+			regPopupTween(comboSpr, FlxTween.tween(comboSpr, {alpha: 0}, 0.2 / playbackRate, {
+				onComplete: function(tween:FlxTween)
+				{
+					recyclePopupSprite(comboSpr);
+					recyclePopupSprite(rating);
+				},
+				startDelay: Conductor.crochet * 0.002 / playbackRate
+			}));
+		}
 	}
 
 	public var strumsBlocked:Array<Bool> = [];
