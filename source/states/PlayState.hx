@@ -168,6 +168,7 @@ class PlayState extends MusicBeatState
 	public var chartIdx:Int = 0;			// 下一个待实例化的行
 	public var chartStepCrochet:Float = 0;	// 构建期快照: sustain 间距不随中途 BPM/rate 变化(对齐原版全量生成)
 	public static inline var CHART_SPAWN_WINDOW:Float = 8000;	// 预生成窗口(ms), 覆盖 playbackRate/multSpeed 最坏情况
+	public static inline var CHART_REFILL_CAP:Int = 24;	// 每帧最多实例化的谱面行数: 掉帧后把补帧尖峰摊平(upd尖峰→更深掉帧的恶性循环), 溢出顺延后续帧; 24行/帧@60fps=1440行/s 远超任何谱面密度
 
 	public var eventNotes:Array<EventNote> = [];
 	public var evtIdx:Int = 0;			// 下一个待触发的事件行(索引推进, 替代 shift O(n))
@@ -1501,6 +1502,7 @@ class PlayState extends MusicBeatState
 				for (i in 0...event[1].length)
 					makeEvent(event, i);
 		}
+		backend.PerfProbe.loadMark('事件加载完');
 
 		// ===== 窗口化谱面: 数据层平铺(不实例化 Note), 按时间排序后滚动生成 =====
 		chartStepCrochet = Conductor.stepCrochet;	// 构建期快照(原版全量生成时即此值)
@@ -1524,6 +1526,7 @@ class PlayState extends MusicBeatState
 				if (!noteTypes.contains(nt)) noteTypes.push(nt);
 			}
 		}
+		backend.PerfProbe.loadMark('谱面平铺完');
 		{
 			var n:Int = chartTimes.length;
 			var order:Array<Int> = new Array<Int>();
@@ -1964,10 +1967,13 @@ class PlayState extends MusicBeatState
 		{
 			var preTime:Float = spawnTime * playbackRate + CHART_SPAWN_WINDOW;
 			if (songSpeed < 1) preTime /= songSpeed;
+			var filled:Int = 0;
 			while (chartIdx < chartTimes.length && chartTimes[chartIdx] - Conductor.songPosition < preTime)
 			{
 				makeChartNote(chartIdx);
 				chartIdx++;
+				filled++;
+				if (filled >= CHART_REFILL_CAP) break;	// 每帧行数上限: 防掉帧后补帧风暴(掉帧→一次性实例化更多行→更卡), 溢出顺延到后续帧
 			}
 			// 批量生成后按时间排序: sustain 链 piece 的 strumTime 会跨越后续行的本体时间,
 			// 不排序则 spawn 队列头被"未来"的 piece 卡住, 后续行延迟出现(长箭头之间出现断缝)
