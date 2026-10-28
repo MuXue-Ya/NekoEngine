@@ -2807,12 +2807,31 @@ class PlayState extends MusicBeatState
 	// ===== popUpScore 对象池: 弹出精灵(rating/combo 文字/数字)复用, 击中不再 new/destroy(削 GC 分配) =====
 	public var popupPool:Array<FlxSprite> = [];
 
+	// 本 port 的 flixel 无 FlxTween.killTweensOf: 弹出 tween 自行登记, 回收/复用时逐个 cancel
+	var popupTweens:Map<FlxSprite, Array<FlxTween>> = [];
+
+	function regPopupTween(spr:FlxSprite, t:FlxTween):FlxTween
+	{
+		var arr:Array<FlxTween> = popupTweens.get(spr);
+		if (arr == null) { arr = []; popupTweens.set(spr, arr); }
+		arr.push(t);
+		return t;
+	}
+
+	function killPopupTweens(spr:FlxSprite):Void
+	{
+		var arr:Array<FlxTween> = popupTweens.get(spr);
+		if (arr == null) return;
+		for (t in arr)
+			if (t != null && t.active) t.cancel();	// 只 cancel 活跃 tween; 已完成的不动(防回调内重入)
+		popupTweens.remove(spr);
+	}
+
 	function takePopupSprite():FlxSprite
 	{
 		var spr:FlxSprite = popupPool.pop();
 		if (spr == null) spr = new FlxSprite();
-		FlxTween.killTweensOf(spr);			// 清掉上一轮残留的淡出/回弹 tween
-		FlxTween.killTweensOf(spr.scale);
+		killPopupTweens(spr);				// 清掉上一轮残留的淡出/回弹 tween(含延迟中的, 防旧回调误回收)
 		spr.revive();
 		spr.alpha = 1;
 		spr.angle = 0;
@@ -2823,8 +2842,7 @@ class PlayState extends MusicBeatState
 
 	function recyclePopupSprite(spr:FlxSprite):Void
 	{
-		FlxTween.killTweensOf(spr);
-		FlxTween.killTweensOf(spr.scale);
+		killPopupTweens(spr);
 		spr.velocity.set(0, 0);
 		spr.acceleration.set(0, 0);
 		spr.kill();
@@ -2931,15 +2949,15 @@ class PlayState extends MusicBeatState
 		var rbY:Float = rating.scale.y;
 		rating.angle = FlxG.random.float(-10, 10);
 		rating.scale.set(rbX * 1.3, rbY * 0.8);
-		FlxTween.tween(rating, {angle: 0}, 0.5 / playbackRate, {ease: FlxEase.elasticOut});
-		FlxTween.tween(rating.scale, {x: rbX, y: rbY}, 0.45 / playbackRate, {ease: FlxEase.backOut});
+		regPopupTween(rating, FlxTween.tween(rating, {angle: 0}, 0.5 / playbackRate, {ease: FlxEase.elasticOut}));
+		regPopupTween(rating, FlxTween.tween(rating.scale, {x: rbX, y: rbY}, 0.45 / playbackRate, {ease: FlxEase.backOut}));
 
 		var cbX:Float = comboSpr.scale.x;
 		var cbY:Float = comboSpr.scale.y;
 		comboSpr.angle = FlxG.random.float(-10, 10);
 		comboSpr.scale.set(cbX * 1.3, cbY * 0.8);
-		FlxTween.tween(comboSpr, {angle: 0}, 0.5 / playbackRate, {ease: FlxEase.elasticOut});
-		FlxTween.tween(comboSpr.scale, {x: cbX, y: cbY}, 0.45 / playbackRate, {ease: FlxEase.backOut});
+		regPopupTween(comboSpr, FlxTween.tween(comboSpr, {angle: 0}, 0.5 / playbackRate, {ease: FlxEase.elasticOut}));
+		regPopupTween(comboSpr, FlxTween.tween(comboSpr.scale, {x: cbX, y: cbY}, 0.45 / playbackRate, {ease: FlxEase.backOut}));
 
 		var seperatedScore:Array<Int> = [];
 
@@ -2977,30 +2995,30 @@ class PlayState extends MusicBeatState
 			if(showComboNum)
 				comboGroup.add(numScore);
 
-			FlxTween.tween(numScore, {alpha: 0}, 0.2 / playbackRate, {
+		regPopupTween(numScore, FlxTween.tween(numScore, {alpha: 0}, 0.2 / playbackRate, {
 				onComplete: function(tween:FlxTween)
 				{
 					recyclePopupSprite(numScore);
 				},
 				startDelay: Conductor.crochet * 0.002 / playbackRate
-			});
+			}));
 
 			daLoop++;
 			if(numScore.x > xThing) xThing = numScore.x;
 		}
 		comboSpr.x = xThing + 50;
-		FlxTween.tween(rating, {alpha: 0}, 0.2 / playbackRate, {
+		regPopupTween(rating, FlxTween.tween(rating, {alpha: 0}, 0.2 / playbackRate, {
 			startDelay: Conductor.crochet * 0.001 / playbackRate
-		});
+		}));
 
-		FlxTween.tween(comboSpr, {alpha: 0}, 0.2 / playbackRate, {
+		regPopupTween(comboSpr, FlxTween.tween(comboSpr, {alpha: 0}, 0.2 / playbackRate, {
 			onComplete: function(tween:FlxTween)
 			{
 				recyclePopupSprite(comboSpr);
 				recyclePopupSprite(rating);
 			},
 			startDelay: Conductor.crochet * 0.002 / playbackRate
-		});
+		}));
 	}
 
 	public var strumsBlocked:Array<Bool> = [];
