@@ -2804,6 +2804,34 @@ class PlayState extends MusicBeatState
 			Paths.image(uiPrefix + 'num' + i + uiSuffix);
 	}
 
+	// ===== popUpScore 对象池: 弹出精灵(rating/combo 文字/数字)复用, 击中不再 new/destroy(削 GC 分配) =====
+	public var popupPool:Array<FlxSprite> = [];
+
+	function takePopupSprite():FlxSprite
+	{
+		var spr:FlxSprite = popupPool.pop();
+		if (spr == null) spr = new FlxSprite();
+		FlxTween.killTweensOf(spr);			// 清掉上一轮残留的淡出/回弹 tween
+		FlxTween.killTweensOf(spr.scale);
+		spr.revive();
+		spr.alpha = 1;
+		spr.angle = 0;
+		spr.velocity.set(0, 0);
+		spr.acceleration.set(0, 0);
+		return spr;
+	}
+
+	function recyclePopupSprite(spr:FlxSprite):Void
+	{
+		FlxTween.killTweensOf(spr);
+		FlxTween.killTweensOf(spr.scale);
+		spr.velocity.set(0, 0);
+		spr.acceleration.set(0, 0);
+		spr.kill();
+		comboGroup.remove(spr);
+		popupPool.push(spr);
+	}
+
 	private function popUpScore(note:Note = null):Void
 	{
 		// 判定直方图: 带符号偏差(正=按早, 负=按晚), 除以速率与判定窗口同尺度; botplay 不计
@@ -2813,14 +2841,16 @@ class PlayState extends MusicBeatState
 		vocals.volume = 1;
 
 		if (!ClientPrefs.data.comboStacking && comboGroup.members.length > 0) {
-			for (spr in comboGroup) {
-				spr.destroy();
-				comboGroup.remove(spr);
+			var ci:Int = comboGroup.members.length - 1;
+			while (ci >= 0) {
+				var spr:FlxSprite = cast comboGroup.members[ci];
+				if (spr != null) recyclePopupSprite(spr);
+				ci--;
 			}
 		}
 
 		var placement:Float = FlxG.width * 0.35;
-		var rating:FlxSprite = new FlxSprite();
+		var rating:FlxSprite = takePopupSprite();
 		var score:Int = 350;
 
 		//tryna do MS based judgment due to popular demand
@@ -2863,13 +2893,13 @@ class PlayState extends MusicBeatState
 		rating.acceleration.y = 550 * playbackRate * playbackRate;
 		rating.velocity.y -= FlxG.random.int(140, 175) * playbackRate;
 		rating.velocity.x -= FlxG.random.int(0, 10) * playbackRate;
-		rating.angle = FlxG.random.float(-15, 15);	// 评分随机左右倾斜(生成时定死, 随原版飞散+淡出)
 		rating.visible = (!ClientPrefs.data.hideHud && showRating);
 		rating.x += ClientPrefs.data.comboOffset[0];
 		rating.y -= ClientPrefs.data.comboOffset[1];
 		rating.antialiasing = antialias;
 
-		var comboSpr:FlxSprite = new FlxSprite().loadGraphic(Paths.image(uiPrefix + 'combo' + uiSuffix));
+		var comboSpr:FlxSprite = takePopupSprite();
+		comboSpr.loadGraphic(Paths.image(uiPrefix + 'combo' + uiSuffix));
 		comboSpr.screenCenter();
 		comboSpr.x = placement;
 		comboSpr.acceleration.y = FlxG.random.int(200, 300) * playbackRate * playbackRate;
@@ -2880,7 +2910,6 @@ class PlayState extends MusicBeatState
 		comboSpr.antialiasing = antialias;
 		comboSpr.y += 60;
 		comboSpr.velocity.x += FlxG.random.int(1, 10) * playbackRate;
-		comboSpr.angle = FlxG.random.float(-15, 15);	// combo 文字同样随机倾斜
 		comboGroup.add(rating);
 
 		if (!PlayState.isPixelStage)
@@ -2896,6 +2925,21 @@ class PlayState extends MusicBeatState
 
 		comboSpr.updateHitbox();
 		rating.updateHitbox();
+
+		// Q弹: 随机初倾 + 果冻起手(横拉纵压), 弹性回正; 数字保持原版不倾斜
+		var rbX:Float = rating.scale.x;
+		var rbY:Float = rating.scale.y;
+		rating.angle = FlxG.random.float(-10, 10);
+		rating.scale.set(rbX * 1.3, rbY * 0.8);
+		FlxTween.tween(rating, {angle: 0}, 0.5 / playbackRate, {ease: FlxEase.elasticOut});
+		FlxTween.tween(rating.scale, {x: rbX, y: rbY}, 0.45 / playbackRate, {ease: FlxEase.backOut});
+
+		var cbX:Float = comboSpr.scale.x;
+		var cbY:Float = comboSpr.scale.y;
+		comboSpr.angle = FlxG.random.float(-10, 10);
+		comboSpr.scale.set(cbX * 1.3, cbY * 0.8);
+		FlxTween.tween(comboSpr, {angle: 0}, 0.5 / playbackRate, {ease: FlxEase.elasticOut});
+		FlxTween.tween(comboSpr.scale, {x: cbX, y: cbY}, 0.45 / playbackRate, {ease: FlxEase.backOut});
 
 		var seperatedScore:Array<Int> = [];
 
@@ -2913,7 +2957,8 @@ class PlayState extends MusicBeatState
 
 		for (i in seperatedScore)
 		{
-			var numScore:FlxSprite = new FlxSprite().loadGraphic(Paths.image(uiPrefix + 'num' + Std.int(i) + uiSuffix));
+			var numScore:FlxSprite = takePopupSprite();
+			numScore.loadGraphic(Paths.image(uiPrefix + 'num' + Std.int(i) + uiSuffix));
 			numScore.screenCenter();
 			numScore.x = placement + (43 * daLoop) - 90 + ClientPrefs.data.comboOffset[2];
 			numScore.y += 80 - ClientPrefs.data.comboOffset[3];
@@ -2925,7 +2970,6 @@ class PlayState extends MusicBeatState
 			numScore.acceleration.y = FlxG.random.int(200, 300) * playbackRate * playbackRate;
 			numScore.velocity.y -= FlxG.random.int(140, 160) * playbackRate;
 			numScore.velocity.x = FlxG.random.float(-5, 5) * playbackRate;
-			numScore.angle = FlxG.random.float(-15, 15);	// 每位数字独立随机倾斜
 			numScore.visible = !ClientPrefs.data.hideHud;
 			numScore.antialiasing = antialias;
 
@@ -2936,7 +2980,7 @@ class PlayState extends MusicBeatState
 			FlxTween.tween(numScore, {alpha: 0}, 0.2 / playbackRate, {
 				onComplete: function(tween:FlxTween)
 				{
-					numScore.destroy();
+					recyclePopupSprite(numScore);
 				},
 				startDelay: Conductor.crochet * 0.002 / playbackRate
 			});
@@ -2952,8 +2996,8 @@ class PlayState extends MusicBeatState
 		FlxTween.tween(comboSpr, {alpha: 0}, 0.2 / playbackRate, {
 			onComplete: function(tween:FlxTween)
 			{
-				comboSpr.destroy();
-				rating.destroy();
+				recyclePopupSprite(comboSpr);
+				recyclePopupSprite(rating);
 			},
 			startDelay: Conductor.crochet * 0.002 / playbackRate
 		});
