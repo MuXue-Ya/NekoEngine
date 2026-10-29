@@ -1916,9 +1916,10 @@ class PlayState extends MusicBeatState
 			Conductor.songPosition += FlxG.elapsed * 1000 * playbackRate;
 
 			// 音画对齐: 谱面时钟为纯积分, 与音频时钟存在固定起点差(实测约100ms, 音符视觉晚到->判定全偏)
-			// 偏差超过半个sick窗口(50ms)时硬对齐到音频时钟; 两者速率一致, 通常只需触发一次
+			// 偏差超阈值时硬对齐到音频时钟; 两者速率一致, 通常只需触发一次。
+			// 死区 50→25ms: 实测漂移在 -6~-35ms 缓慢游走(非高频抖动), 收紧后最坏视音偏移减半; 漂移超 25ms 即回贴音频时钟
 			if (!startingSong && updateTime && FlxG.sound.music != null && FlxG.sound.music.playing
-				&& Math.abs(FlxG.sound.music.time - Conductor.songPosition) > 50)
+				&& Math.abs(FlxG.sound.music.time - Conductor.songPosition) > 25)
 				Conductor.songPosition = FlxG.sound.music.time;
 		}
 
