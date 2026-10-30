@@ -1,6 +1,6 @@
 # NekoEngine 交接文档（新对话用）
 
-> 更新：2026-10-27 · 远端 master = `f5d86183`（Run #106 ✅ 窗口化兼容：旧式箭头/事件 lua 全量实例化兜底）
+> 更新：2026-10-30 · 远端 master = `b68d5118`（Run #117 构建中：lua 音效后台预载+首载诊断+探针口径）
 > 阅读本文件后即可接手，无需翻旧对话。
 
 ## 1. 项目概述
@@ -61,6 +61,8 @@ POST `/git/commits`（parents=[base]）→ PATCH `/git/refs/heads/master`。
 - 判定：总均差 +9~10ms，正偏 72%，无 UnableF-mix 旧日志的 -20~-40ms 系统漂移 → 判定复测收口。
 - 打歌堆峰 452MB / rss 峰 2031MB（5GB 机器）；退出清理正常（GC -379MB 回落 72.8MB）。
 - fps：用户 61Hz 屏，锁 60 打；不锁时 123 满帧。
+- **2026-10-29/30 多模组对照结论**：deathmatch(1834行) 全曲分配≈0MB/s、GC 仅 3 次——**引擎本体分配极干净**；Duality-VIP 的 30MB/s 分配与 GC 风暴 = 其 mod lua（每帧遍历 notes 组+打歌中动态加载）。打歌中周期性 +32~63MB 大尖帧 = **换装/特效大图整张同步解码瞬态**（80-156ms/次，死缓冲等 GC 回收呈阶梯）。Infraction(他机 120Hz/11GB)：音轨 1→8 波动、四次 1.5-4s 卡顿=动态音轨解码，42 miss 中 39 个来自两次卡顿。稳态(fps/判定/draw)在所有 mod 上均健康。
+- 弹出动画最终态 = **粘性弹出**(#112 内容)：击中原地刷新+Q弹+池化；倾斜/乒乓球实验已回退。
 
 ## 4. Run 历史（#68 起）
 
@@ -104,6 +106,17 @@ POST `/git/commits`（parents=[base]）→ PATCH `/git/refs/heads/master`。
 | #103 | 83bc0175 | ✗ | icon 间距实验包：已取消并 force 回退（iconSpread 撤回, 本地已同步还原）|
 | #105 | 92a15559 | ✅ | 恢复误删 data 根级文件(introText/characterList/stageList/specialThanks/main-view.xml)——修标题崩溃；**obj 缓存首次兑现：源码不变构建 184s** |
 | #106 | f5d86183 | ✅ | **窗口化兼容**：带 custom_notetypes/custom_events 脚本且谱面 ≤4000 行时，脚本加载前按原版全量实例化——修复旧式 onCreate 遍历 unspawnNotes 的箭头/事件 lua 全部落空（GF Sing/Duality-MomNote/Shoot Note 等）；新增 noteScriptExists()。全量构建 27.5min |
+| #107 | cc97937a | ✅ | 仅交接文档同步（docs/HANDOVER.md 补齐 #94-#106）；obj 缓存兑现：仅文档构建 ~4 分钟 |
+| #108 | af4817d9 | ✅ | **批次E+归因+B1**：GC 调参(setMinimumFreeSpace 48MB+target 40%) / PerfProbe 分配速率行 / create 细分打点 / vocals 后台并行解码(1.55s→0.8s) |
+| #109 | 8c8718ea | ✅ | 评分弹出随机倾斜 ±15°（视觉实验一）|
+| #110 | 6a2b7b9a | ❌ | Q弹+池化：flixel 5.5.0 无 FlxTween.killTweensOf，4 处编译错 |
+| #111 | 4f210119 | ✅ | hotfix：tween 登记表(regPopupTween/killPopupTweens)替代 killTweensOf |
+| #112 | f6a6675a | ✅ | **粘性弹出**：击中原地刷新+Q弹脉冲，停手 600ms 淡出；池化落地(popUpScore 零 new/destroy) |
+| #113 | 3d1a64f5 | ✅ | 乒乓球弹跳+允许堆叠（视觉实验三）|
+| #114 | 80b98386 | ✅ | **回退至 #112 内容**(blob 6bd5bd7d)——乒乓球/倾斜实验取消，粘性弹出为最终态 |
+| #115 | 65970d7e | ✅ | **窗口化补帧限流** CHART_REFILL_CAP=24/帧 + 谱面数据段归因打点(事件加载完/谱面平铺完) |
+| #116 | cf9fdfbe | ✅ | 音画对齐死区 50→25ms（漂移 -6~-35ms 缓慢游走，最坏视音偏移减半）|
+| #117 | b68d5118 | ⏳ | **lua 音效后台预载**(LuaSoundScan) + 打歌中首载诊断([首载] 行) + 探针口径修复(段标签/按段重置) |
 
 ## 5. 已完成改动明细（文件级）
 
@@ -176,11 +189,12 @@ POST `/git/commits`（parents=[base]）→ PATCH `/git/refs/heads/master`。
 7. **GPU 缓存全局默认开**（保留用户开关；≥2MB 自动 GPU 化已覆盖需求）。
 8. **帧率跟随刷新率**（用户固定设 120 帧，不要动帧率逻辑；#90 起记录）。
 9. **贴图降采样/缩放——永久否决（不分人物/背景/任何图）**（#90 事故：角色图集缩放后 Sparrow XML 帧坐标错位满屏碎片；#92 fromAtlas 修复后背景仍错位，用户「全部还原」——#93 Paths.hx 已回 #88。后续任何优化一律不碰贴图像素内容与尺寸，GPU 化原尺寸上传保持 #88 原状）。
+10. **mod 贴图压缩（ASTC 等）——红线（2026-10-30 用户明示）**："不能动的就是贴图压缩，要不然又识别失败"。mod 人物/背景贴图一律不转换不压缩；引擎自带资产的 ASTC 管线不受影响。mod lua 脚本允许修改（用户授权"mod 动不动随便你"）。
 
 ## 7. 待办 / 待验证
 
-0. **装 Run #106 实测**：特殊箭头 lua 生效——GF Sing（pico 贴图+GF 代唱+半透明 0.7）、Duality-MomNote（角色不唱+玩家 miss 免罚）、Shoot Note（Note 贴图+无动画）、Duet_Note（对手侧 GF 代唱，确认不回退）；长箭头连续（#102）；图标挤压双振荡；平滑血条开关。
-1. ~~进歌耗时复测~~ **已收口**（§3.2：16.5s 分解，4.4s 角色构造 + 10s create 后半段）——后续归批次 B。
+0. **装 Run #117+ 实测（两台机）**：① deathmatch 验证补帧限流（基线 fps均=40/尖帧158 → 目标 55+）② Infraction 验证 lua 音效后台预载（音轨 1→8 波动的 1.5-4s 卡顿应消失，miss=42 应个位数）③ Duality 打一首看 `[首载]` 行点名 32MB 阶梯资源 ④ 粘性弹出+池化手感确认。
+1. ~~进歌耗时复测~~ **已收口**（#108 打点：Duality 16-19.8s = gf 3.9-4.9s + HUD 5.3s + lua 3.2s + 预载 3.8s + 解码 0.8-2.8s；deathmatch 另有谱面数据段 5.8-8.6s 待 #115 打点定位）。
 1b. **icon 间距**：暂缓（用户测试其他 mod 后再定，档位 8/10/16px 已备，16px 包 #103 已取消）。
 2. **批次 B：进歌分帧预载**（打点数据已到手：4.4s = gf/dad/bf Character 构造，10s = 舞台/UI/lua 脚本；另中盘角色换装 +95MB/1667ms 尖峰同属此批）。
 3. **批次 C：popUpScore 池化**（**已提级**：GC 风暴实测 0.4~1.1s/次、P90 43ms ≡ 172 次尖帧，是当前唯一压制 fps 因素；另注：mod lua 每帧遍历 notes 组也是分配源，如 charDance.lua onUpdatePost）。
@@ -216,6 +230,11 @@ POST `/git/commits`（parents=[base]）→ PATCH `/git/refs/heads/master`。
 17. **hxcpp obj 缓存正确姿势**(#98/#105)：精确 key(source+Project.xml+hmm.json hash)、obj 整体 touch 未来、**无 restore-keys 前缀兜底**（防旧产物挡新代码）；haxe 生成 cpp 的 mtime=now 恒新于缓存 obj，touch Haxe 源无效。源码不变构建 20min→3min。
 18. **窗口化生成后必须 unspawnNotes.sort(sortByTime)**(#102)：sustain 链 piece 跨越后续行时间, 队列乱序会让 spawn 循环(只看队头)卡住 → 长箭头断缝/音符延迟。
 19. **窗口化 vs 旧式 mod lua**(#106)：mod 脚本在 `onCreate`（FunkinLua 构造即执行）遍历 `unspawnNotes` 是旧版 Psych 的隐含契约（那时全量实例化先于脚本加载）；窗口化打破该契约 → 特殊箭头/事件 lua 静默失效（无报错，难排查）。引擎侧兜底：检测到 custom_notetypes/custom_events 脚本且谱面 ≤4000 行就回退全量实例化。新写 mod 脚本应改用 `onSpawnNote` 钩子（引擎每根箭头实例化时都回调，窗口化下也正确）。
+20. **flixel 5.5.0 无 FlxTween.killTweensOf**(#110)：静态门面只有 completeTweensOf；需杀 tween 时自建登记表(对象→tween 数组)+逐个 cancel，且只 cancel active 的(防 onComplete 内重入)。顺带修掉延迟 tween 复用后误触发的隐患。
+21. **Haxe 闭包捕获循环变量是共享的**：`for (x in arr) push(function() use x)` 所有闭包看到最后一个 x——循环体内 `var cur = x;` 重新声明才是按次捕获。
+22. **/sdcard 上 write 工具新建文件报 EINVAL**(原子发布不支持)：新文件用 bash heredoc `cat >` 创建；git trees API 对大仓库返回截断——按路径取文件用 contents API(`?ref=sha`)。
+23. **外部 AI 分析(DeepSeek/元宝)要核验后再动手**：两份报告都有误读——元宝把 `谱面实例化完(兼容路径按需)` 打点当成了卡顿根因(实际是 #106 全量实例化的耗时记录)，其"池化 1317 行"方案=legacyFill 已做的事。共见结论才可信：稳态健康、突发大块工作(资源同步解码)是主要矛盾。
+24. **多设备测试**：用户有两台机(5GB/61Hz + 11GB/120Hz)，日志头看设备行；#115 前的包没有 补帧限流/归因打点，旧包日志缺新打点属正常。
 
 ## 9. 布局速查（继承旧版，未变）
 
