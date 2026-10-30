@@ -41,6 +41,7 @@ class PerfProbe
 	static var spikeSec:Int = 0;
 
 	static var lastStateRef:FlxState = null;
+	static var segLabel:String = '';	// 当前段的标签(进入该状态时的短名, 修复段小结 off-by-one)
 	static var startMs:Float = 0;
 
 	static var buffer:Array<String> = [];
@@ -160,6 +161,7 @@ class PerfProbe
 			if (lastStateRef != null) pushSegSummary(now);
 			if (lastStateRef != null) push('--- 状态: ' + shortState(curStateName()) + ' ---');
 			lastStateRef = st;
+			segLabel = shortState(curStateName());	// 本段标签 = 刚进入的状态(修复段小结 off-by-one)
 		}
 
 			// 按秒汇总
@@ -235,7 +237,7 @@ class PerfProbe
 		var segSec:Float = (now - segStartMs) / 1000;
 		if (segStartMs <= 0 || segSec < 3) return;	// 段太短(切屏抖动)不输出
 
-		var line:String = shortState(curStateName()) + ' 段小结: ' + Math.round(segSec) + 's'
+		var line:String = (segLabel != null && segLabel.length > 0 ? segLabel : shortState(curStateName())) + ' 段小结: ' + Math.round(segSec) + 's'
 			+ '  fps均=' + Math.round(segFrames / Math.max(1, segSec))
 			+ '  mem峰=' + Math.round(segMemPeak) + 'MB';
 		if (segJudgeN > 0)
@@ -252,6 +254,8 @@ class PerfProbe
 		segStartMs = now; segFrames = 0; segMemPeak = 0;
 		segJudgeN = 0; segJudgeSum = 0; segJudgeMiss = 0;
 		allocSegMB = 0; allocSegSecs = 0;
+		spikeTotal = 0; spikeMaxMs = 0;		// 尖峰统计按段重置(此前跨段累计易误判)
+		gcTotalCnt = 0; gcTotalMB = 0;		// GC 统计按段重置
 	}
 
 	public static function onPostUpdate():Void

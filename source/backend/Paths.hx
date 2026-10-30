@@ -265,6 +265,27 @@ class Paths
 		return null;
 	}
 
+	// 供 LuaSoundScan: 把 lua 里的音效键解析为实际文件路径(找不到返回 null)
+	public static function anySoundFile(key:String):String
+	{
+		#if MODS_ALLOWED
+		var f:String = modsSounds('sounds', key);
+		if (FileSystem.exists(f)) return f;
+		f = modsSounds('music', key);
+		if (FileSystem.exists(f)) return f;
+		#end
+		return null;
+	}
+
+	// ===== 打歌中首载诊断: 缓存未命中的解码超过阈值且处于打歌状态时, 记录到 PerfProbe =====
+	static function logSlowLoad(kind:String, file:String, ms:Float):Void
+	{
+		if (ms < 50) return;
+		var st:String = Type.getClassName(Type.getClass(flixel.FlxG.state));
+		if (st == null || st.indexOf('PlayState') < 0) return;
+		backend.PerfProbe.log('[首载] ' + kind + ' ' + file.substr(file.lastIndexOf('/') + 1) + ' ' + Math.round(ms) + 'ms');
+	}
+
 	public static var currentTrackedAssets:Map<String, FlxGraphic> = [];
 	
 	static public function image(key:String, ?library:String = null, ?allowGPU:Bool = true):FlxGraphic
@@ -302,7 +323,9 @@ class Paths
 			else if (FileSystem.exists(filePng))
 			{
 				file = filePng;
+				var t0:Float = haxe.Timer.stamp() * 1000;
 				bitmap = BitmapData.fromFile(file);
+				logSlowLoad('贴图', file, haxe.Timer.stamp() * 1000 - t0);
 			}
 		}
 		#end
@@ -584,8 +607,12 @@ class Paths
 		if(FileSystem.exists(file)) {
 			var cachedModSound = currentTrackedSounds.get(file);
 			if(cachedModSound == null)
+				cachedModSound = backend.LuaSoundScan.take(file);	// lua 扫描预载命中: 零停顿
+			if(cachedModSound == null)
 			{
+				var t0:Float = haxe.Timer.stamp() * 1000;
 				cachedModSound = Sound.fromFile(file);
+				logSlowLoad('音频', file, haxe.Timer.stamp() * 1000 - t0);
 				currentTrackedSounds.set(file, cachedModSound);
 			}
 			localTrackedAssets.push(file);

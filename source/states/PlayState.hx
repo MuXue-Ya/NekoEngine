@@ -718,6 +718,15 @@ class PlayState extends MusicBeatState
 		#end
 		backend.PerfProbe.loadMark('lua 脚本加载完');
 
+		// lua 音效扫描预载: 收集脚本字面量音效键, 后台线程预解码(防打歌中动态解码 1-4s 主线程停顿)
+		#if MODS_ALLOWED
+		var scanPaths:Array<String> = [];
+		for (scanLua in luaArray)
+			scanPaths.push(scanLua.scriptName);
+		backend.LuaSoundScan.reset();
+		backend.LuaSoundScan.start(scanPaths);
+		#end
+
 		startCallback();
 		RecalculateRating();
 
