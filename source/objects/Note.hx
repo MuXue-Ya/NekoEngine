@@ -227,15 +227,24 @@ class Note extends FlxSprite
 
 	public static function obtain(strumTime:Float, noteData:Int, ?prevNote:Note, ?sustainNote:Bool = false, ?inEditor:Bool = false, ?createdFrom:Dynamic = null):Note
 	{
+		#if cpp
+		var __h0:Float = backend.PerfProbe.heapMB();	// C: 分配归因
+		#end
 		var n:Note = null;
 		if (pool.length > 0) n = pool.pop();
 		if (n == null)
 		{
 			createdCount++;
-			return new Note(strumTime, noteData, prevNote, sustainNote, inEditor, createdFrom);
+			n = new Note(strumTime, noteData, prevNote, sustainNote, inEditor, createdFrom);
 		}
-		reusedCount++;
-		n.initNote(strumTime, noteData, prevNote, sustainNote, inEditor, createdFrom);
+		else
+		{
+			reusedCount++;
+			n.initNote(strumTime, noteData, prevNote, sustainNote, inEditor, createdFrom);
+		}
+		#if cpp
+		backend.PerfProbe.addAlloc('音符', __h0);
+		#end
 		return n;
 	}
 

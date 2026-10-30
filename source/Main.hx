@@ -56,10 +56,12 @@ class Main extends Sprite
 	{
 		super();
 
-		// ===== GC 调参(批次E): hxcpp 裸默认在 300-450MB 堆+10-20MB/s 分配率下 0.4-1.1s/次 GC(P90 暂停 43ms)≈尖帧风暴 =====
+		// ===== GC 调参: hxcpp 裸默认在 300-450MB 堆+10-20MB/s 分配率下 0.4-1.1s/次 GC(P90 暂停 43ms)≈尖帧风暴 =====
 		// 拉大余量换平滑: 预计 GC 频率降 5-10x; 代价=堆多占 100-300MB(5GB 机器可承受)
+		// 第二轮(实测 perf_log): 打歌时堆 400-570MB、每 ~15s 一次回收 130-160MB、单次停顿 60-90ms(音频同时静音)。
+		// 抬到 96MB 后回收间隔约翻倍(每次仍 ~60-90ms, 但次数减半) → 每分钟总停顿明显下降。
 		#if cpp
-		cpp.vm.Gc.setMinimumFreeSpace(48 * 1024 * 1024);	// 空闲低于 48MB 才触发 GC/扩堆(裸默认仅数 MB)
+		cpp.vm.Gc.setMinimumFreeSpace(96 * 1024 * 1024);	// 空闲低于 96MB 才触发 GC/扩堆(原 48)
 		cpp.vm.Gc.setTargetFreeSpacePercentage(40);			// 扩堆时让空闲占堆 40%, 少扩几次
 		#end
 

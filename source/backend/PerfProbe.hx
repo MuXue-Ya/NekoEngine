@@ -209,7 +209,7 @@ class PerfProbe
 				+ '  fps=' + Math.round(secFrames / sec)
 				+ '  upd=' + r1(updAvg) + 'ms(峰' + r1(updMax) + ')'
 				+ '  draw=' + r1(drawAvg) + 'ms(峰' + r1(drawMax) + ')'
-				+ '  GC=' + gcSec + memLine + driftLine() + judgeLine);
+				+ '  GC=' + gcSec + memLine + allocLine() + driftLine() + judgeLine);
 
 			// 段级累加(清零前)
 			segFrames += secFrames;
@@ -226,7 +226,7 @@ class PerfProbe
 			for (i in 0...judgeBuckets.length) judgeBuckets[i] = 0;
 			secStartMs = now;
 			summariesSinceFlush++;
-			if (summariesSinceFlush >= 2) flush();	// 约2秒落盘一次
+			if (summariesSinceFlush >= 5) flush();	// 约5秒落盘一次(降低写盘频率; 每2秒一次对打歌是无谓 I/O)
 
 			// 内存分解: 每10秒定位堆里的大头(普通贴图/ASTC/资源跟踪量)
 			// D1: 默认关闭 —— 该函数每 10s 遍历整个贴图缓存+读 /proc(1~5ms I/O), 是周期性尖帧的可疑来源;
@@ -326,6 +326,36 @@ class PerfProbe
 
 	// ===== 内部 =====
 
+	// ===== 分配归因(诊断) =====
+	// 用法: var h0 = PerfProbe.heapMB(); ...热点代码...; PerfProbe.addAlloc("溅射", h0);
+	// 每秒汇总行会输出 "分:标签=MB ...", 用来定位周期性堆增长来自哪里
+	static var allocLabels:Map<String, Float> = new Map<String, Float>();
+
+	#if cpp
+	public static inline function heapMB():Float
+		return cpp.vm.Gc.memInfo64(cpp.vm.Gc.MEM_INFO_USAGE) / 1048576.0;
+	#else
+	public static inline function heapMB():Float return 0;
+	#end
+
+	public static inline function addAlloc(label:String, h0:Float):Void
+	{
+		#if cpp
+		var d:Float = heapMB() - h0;
+		if (d > 0.05)	// 忽略 50KB 以下噪声
+			allocLabels.set(label, (allocLabels.exists(label) ? allocLabels.get(label) : 0) + d);
+		#end
+	}
+
+	static function allocLine():String
+	{
+		var s:String = '';
+		for (k => v in allocLabels) s += k + '=' + r1(v) + ' ';
+		if (s.length < 1) return '';
+		allocLabels.clear();
+		return ' 分:' + s;
+	}
+
 	static function push(line:String):Void
 	{
 		#if (sys && mobile)
@@ -338,6 +368,9 @@ class PerfProbe
 	{
 		#if (sys && mobile)
 		if (filePath == null || buffer.length == 0) return;
+		#if cpp
+		var h0:Float = heapMB();
+		#end
 		try
 		{
 			if (out == null) out = File.append(filePath, false);
@@ -353,6 +386,9 @@ class PerfProbe
 			buffer.resize(0);
 			enabled = false;
 		}
+		#if cpp
+		addAlloc('日志', h0);
+		#end
 		#end
 	}
 

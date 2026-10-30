@@ -1256,6 +1256,16 @@ class PlayState extends MusicBeatState
 	// B9: 时间文本按秒缓存 —— 秒数没变就不重拼 formatTime
 	var lastTimeSec:Int = -9999;
 
+	// ===== B: 每帧脚本同步的变更检测 =====
+	// 原本每帧固定 7 轮跨脚本边界写入(5×setOnScripts + 2×callOnScripts), 每轮都遍历全部脚本;
+	// 其中 botPlay 整首不变、cameraX/Y 在镜头静止时不变化, 白跑。
+	var syncedDecStep:Float = Math.NEGATIVE_INFINITY;
+	var syncedDecBeat:Float = Math.NEGATIVE_INFINITY;
+	var syncedCamX:Float = Math.NEGATIVE_INFINITY;
+	var syncedCamY:Float = Math.NEGATIVE_INFINITY;
+	var syncedBotPlay:Bool = false;
+	var scriptArgs:Array<Dynamic> = [0.0];	// 复用参数数组(免每帧两次小数组分配)
+
 	public dynamic function updateScore(miss:Bool = false)
 	{
 		var ret:Dynamic = callOnScripts('preUpdateScore', [miss], true);
@@ -1370,12 +1380,29 @@ class PlayState extends MusicBeatState
 	{
 		startingSong = false;
 
+		var tPlayStart:Float = haxe.Timer.stamp();
 		@:privateAccess
 		FlxG.sound.playMusic(inst._sound, 1, false);
 		#if FLX_PITCH FlxG.sound.music.pitch = playbackRate; #end
 		FlxG.sound.music.onComplete = finishSong.bind();
 		vocals.play();
 		opponentVocals.play();
+		var alignWallMs:Float = (haxe.Timer.stamp() - tPlayStart) * 1000;
+
+		// A: 三条音轨是"依次" play() 的, 启动有先后差(本机实测 vocals 恒定落后 inst ~46ms)。
+		// 不纠正的话整首人声慢半拍: 听感偏 + 玩家跟着人声打会整体偏晚(实测判定均差 -21ms)。
+		// 起播后立刻按伴奏的真实位置对齐一次(此时人声源刚起, 不会听到跳变)。
+		// 后端可能来不及报 position(读到 0), 那就用实测的启动耗时兜底。
+		var alignTo:Float = FlxG.sound.music.time;
+		if (alignTo <= 0) alignTo = alignWallMs;
+		if (alignTo > 200) alignTo = 0;	// 异常值保护
+		if (vocals.length > 0) vocals.time = alignTo;
+		if (opponentVocals.length > 0) opponentVocals.time = alignTo;
+		#if mobile
+		backend.PerfProbe.log('[音画] 起播对齐 music=' + Math.round(alignTo)
+			+ ' 实测启动差=' + Math.round(alignWallMs) + 'ms'
+			+ ' vocals=' + Math.round(vocals.time) + ' opp=' + Math.round(opponentVocals.time));
+		#end
 
 		if(startOnTime > 0) setSongTime(startOnTime - 500);
 		startOnTime = 0;
@@ -1918,7 +1945,9 @@ class PlayState extends MusicBeatState
 			}
 		}
 		else FlxG.camera.followLerp = 0;
-		callOnScripts('onUpdate', [elapsed]);
+		// B: 复用参数数组, 免每帧 [elapsed] 小数组分配
+		scriptArgs[0] = elapsed;
+		callOnScripts('onUpdate', scriptArgs);
 
 		super.update(elapsed);
 
@@ -1929,8 +1958,17 @@ class PlayState extends MusicBeatState
 
 		flushScoreText(elapsed);	// A7: 评分文本限频落盘
 
-		setOnScripts('curDecStep', curDecStep);
-		setOnScripts('curDecBeat', curDecBeat);
+		// B: 值没变就不跨脚本边界写(暂停时这两个值完全冻结, 原本每帧仍要遍历所有脚本)
+		if (curDecStep != syncedDecStep)
+		{
+			syncedDecStep = curDecStep;
+			setOnScripts('curDecStep', curDecStep);
+		}
+		if (curDecBeat != syncedDecBeat)
+		{
+			syncedDecBeat = curDecBeat;
+			setOnScripts('curDecBeat', curDecBeat);
+		}
 
 		if(botplayTxt != null && botplayTxt.visible) {
 			botplaySine += 180 * elapsed;
@@ -2150,10 +2188,24 @@ class PlayState extends MusicBeatState
 		}
 		#end
 
-		setOnScripts('cameraX', camFollow.x);
-		setOnScripts('cameraY', camFollow.y);
-		setOnScripts('botPlay', cpuControlled);
-		callOnScripts('onUpdatePost', [elapsed]);
+		// B: 变更检测 —— 镜头静止/机器人开关不变时不再每帧遍历所有脚本写全局
+		if (camFollow.x != syncedCamX)
+		{
+			syncedCamX = camFollow.x;
+			setOnScripts('cameraX', camFollow.x);
+		}
+		if (camFollow.y != syncedCamY)
+		{
+			syncedCamY = camFollow.y;
+			setOnScripts('cameraY', camFollow.y);
+		}
+		if (cpuControlled != syncedBotPlay)
+		{
+			syncedBotPlay = cpuControlled;
+			setOnScripts('botPlay', cpuControlled);
+		}
+		scriptArgs[0] = elapsed;
+		callOnScripts('onUpdatePost', scriptArgs);
 	}
 
 	// Health icon updaters
@@ -2411,6 +2463,10 @@ class PlayState extends MusicBeatState
 	}
 
 	public function triggerEvent(eventName:String, value1:String, value2:String, strumTime:Float) {
+		// C: 事件打点(每首只有个位数到几十个) —— 用于把打歌中的大冻结/尖帧和具体事件对上
+		#if mobile
+		backend.PerfProbe.log('[事件] ' + eventName + ' | ' + value1 + ' | ' + value2 + ' @' + Math.round(strumTime) + 'ms');
+		#end
 		var flValue1:Null<Float> = Std.parseFloat(value1);
 		var flValue2:Null<Float> = Std.parseFloat(value2);
 		if(Math.isNaN(flValue1)) flValue1 = null;
@@ -2988,6 +3044,7 @@ class PlayState extends MusicBeatState
 
 	private function popUpScore(note:Note = null):Void
 	{
+		var __allocH:Float = backend.PerfProbe.heapMB();	// C: 分配归因
 		// 判定直方图: 带符号偏差(正=按早, 负=按晚), 除以速率与判定窗口同尺度; botplay 不计
 		if (!cpuControlled)
 			backend.PerfProbe.onJudge((note.strumTime - Conductor.songPosition) / playbackRate, false);
@@ -3183,6 +3240,7 @@ class PlayState extends MusicBeatState
 				startDelay: Conductor.crochet * 0.002 / playbackRate
 			}));
 		}
+		backend.PerfProbe.addAlloc('弹窗', __allocH);	// C: 分配归因
 	}
 
 	public var strumsBlocked:Array<Bool> = [];

@@ -49,6 +49,7 @@ class NoteSplash extends FlxSprite
 
 	var maxAnims:Int = 2;
 	public function setupNoteSplash(x:Float, y:Float, direction:Int = 0, ?note:Note = null) {
+		var __allocH:Float = backend.PerfProbe.heapMB();	// C: 分配归因
 		setPosition(x - Note.swagWidth * 0.95, y - Note.swagWidth);
 		aliveTime = 0;
 
@@ -111,6 +112,8 @@ class NoteSplash extends FlxSprite
 
 		if(animation.curAnim != null)
 			animation.curAnim.frameRate = FlxG.random.int(minFps, maxFps);
+
+		backend.PerfProbe.addAlloc('溅射', __allocH);	// C: 分配归因
 	}
 
 	public static function getSplashSkinPostfix()
