@@ -70,6 +70,25 @@ class RGBShaderReference
 			mult = parent.mult;
 		}
 	}
+
+	// C1: 对象池复用 —— 把引用重新指回共享调色板(丢弃 cloneOriginal 产生的私有副本),
+	// 避免每个音符都 new 一个 RGBShaderReference(及其 setter 里的 [r,g,b] 小数组)
+	public function reload(ref:RGBPalette):Void
+	{
+		parent = ref;
+		_original = ref;
+		allowNew = true;
+		_owner.shader = ref.shader;
+		enabled = true;	// setter 会把 _owner.shader 再对一遍 parent.shader
+
+		@:bypassAccessor
+		{
+			r = parent.r;
+			g = parent.g;
+			b = parent.b;
+			mult = parent.mult;
+		}
+	}
 	
 	private function set_r(value:FlxColor)
 	{

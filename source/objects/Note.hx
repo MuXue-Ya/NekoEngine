@@ -210,8 +210,146 @@ class Note extends FlxSprite
 		super();
 
 		animation = new PsychAnimationController(this);
-
 		antialiasing = ClientPrefs.data.antialiasing;
+
+		initNote(strumTime, noteData, prevNote, sustainNote, inEditor, createdFrom);
+	}
+
+	// ===== C1: 音符对象池 =====
+	// 旧实现每个音符 new Note(内含 PsychAnimationController + RGBShaderReference + 多次变换重置),
+	// 命中/漏接后又 destroy(); 一首歌上千次 new/destroy → hxcpp 堆分配与 GC 停顿(全局停顿会连音频线程一起冻)。
+	// 现在命中改为回收复用, 只重置状态并把引用指回共享调色板。
+	public static var pool:Array<Note> = [];
+	static inline var POOL_MAX:Int = 256;	// 峰值同屏音符量级, 超出则真实销毁
+	var inPool:Bool = false;	// 防双回收: 同一对象被 push 两次会让两个音符共用同一实例
+	public static var createdCount:Int = 0;	// 诊断: 真正 new 出来的音符数
+	public static var reusedCount:Int = 0;	// 诊断: 从池里复用的次数
+
+	public static function obtain(strumTime:Float, noteData:Int, ?prevNote:Note, ?sustainNote:Bool = false, ?inEditor:Bool = false, ?createdFrom:Dynamic = null):Note
+	{
+		var n:Note = null;
+		if (pool.length > 0) n = pool.pop();
+		if (n == null)
+		{
+			createdCount++;
+			return new Note(strumTime, noteData, prevNote, sustainNote, inEditor, createdFrom);
+		}
+		reusedCount++;
+		n.initNote(strumTime, noteData, prevNote, sustainNote, inEditor, createdFrom);
+		return n;
+	}
+
+	// 回收: 替代 gameplay 里的 destroy()
+	public function recycle():Void
+	{
+		if (inPool) return;
+		inPool = true;
+
+		kill();
+		active = false;
+		visible = false;
+		// 尽早断引用: 否则池中对象会把整条 sustain 链/谱面对象钉在内存里
+		if (tail.length > 0) tail.resize(0);
+		prevNote = null;
+		nextNote = null;
+		parent = null;
+		extraData.clear();
+
+		if (pool.length >= POOL_MAX)
+		{
+			destroy();
+			return;
+		}
+		pool.push(this);
+	}
+
+	// 状态复位(对象池复用时清掉上一次生命周期的残留)
+	function resetForReuse():Void
+	{
+		// --- FlxSprite 基础 ---
+		revive();
+		inPool = false;
+		active = true;
+		visible = true;
+		alpha = 1;
+		// 注意顺序: multSpeed 的 setter 会经 resizeByRatio 改 scale.y, 必须先于 scale 复位
+		multSpeed = 1;
+		scale.set(1, 1);
+		angle = 0;
+		flipX = false;
+		flipY = false;
+		offset.set(0, 0);
+		antialiasing = ClientPrefs.data.antialiasing;
+
+		// --- 判定/生命周期 ---
+		canBeHit = false;
+		tooLate = false;
+		wasGoodHit = false;
+		missed = false;
+		ignoreNote = false;
+		hitByOpponent = false;
+		noteWasHit = false;
+		spawned = false;
+		blockHit = false;
+		parent = null;
+		nextNote = null;
+		sustainLength = 0;
+		earlyHitMult = 1;
+		lateHitMult = 1;
+		lowPriority = false;
+
+		// --- 表现/音效 ---
+		animSuffix = '';
+		gfNote = false;
+		noAnimation = false;
+		noMissAnimation = false;
+		hitCausesMiss = false;
+		hitHealth = 0.023;
+		missHealth = 0.0475;
+		rating = 'unknown';
+		ratingMod = 0;
+		ratingDisabled = false;
+		hitsound = 'hitsound';
+		hitsoundDisabled = false;
+		hitsoundChartEditor = true;
+		offsetX = 0;
+		offsetY = 0;
+		offsetAngle = 0;
+		multAlpha = 1;
+		copyX = true;
+		copyY = true;
+		copyAngle = true;
+		copyAlpha = true;
+		correctionOffset = 0;
+		originalHeight = 6;
+		distance = 2000;
+		_lastNoteOffX = 0;
+		extraData.clear();
+
+		// --- 溅射配置(就地复位, 不重新分配结构体) ---
+		noteSplashData.disabled = false;
+		noteSplashData.texture = null;
+		noteSplashData.antialiasing = !PlayState.isPixelStage;
+		noteSplashData.useGlobalShader = false;
+		noteSplashData.useRGBShader = (PlayState.SONG != null) ? !(PlayState.SONG.disableNoteRGB == true) : true;
+		noteSplashData.r = -1;
+		noteSplashData.g = -1;
+		noteSplashData.b = -1;
+		noteSplashData.a = ClientPrefs.data.splashAlpha;
+
+		// 类型复位: 必须让它与后续 makeChartNote 的赋值不同, 否则 setter 的 noteType != value 会跳过,
+		// 导致 '-alt' 等派生字段不生效。三点约束:
+		//   1) 首次构造时 rgbShader 还是 null(此时 noteData 也是默认 0), 走 setter 会在 defaultRGB() 里空引用 → 只在复用(已存在)时清
+		//   2) 已经是 '' 时不再赋值, 否则白白触发 set_noteType 里的 defaultRGB()(每次 3 个小数组)
+		//   3) 派生字段(ignoreNote/lowPriority/animSuffix/hitsound...)已在上面逐项复位, 所以空类型跳过 setter 是安全的
+		if (rgbShader != null && noteType != null && noteType != '') noteType = '';
+	}
+
+	// 构造与复用共用: 顺序敏感 —— 先复位 → 再按 skin 重建帧/动画 → 最后定位
+	function initNote(strumTime:Float, noteData:Int, ?prevNote:Note, ?sustainNote:Bool = false, ?inEditor:Bool = false, ?createdFrom:Dynamic = null):Void
+	{
+		resetForReuse();
+
 		if(createdFrom == null) createdFrom = PlayState.instance;
 
 		if (prevNote == null)
@@ -222,24 +360,31 @@ class Note extends FlxSprite
 		this.inEditor = inEditor;
 		this.moves = false;
 
-		x += (ClientPrefs.data.middleScroll ? PlayState.STRUM_X_MIDDLESCROLL : PlayState.STRUM_X) + 50;
+		// 绝对赋值(对象池复用时 x/y 带着上一次的值)
+		x = (ClientPrefs.data.middleScroll ? PlayState.STRUM_X_MIDDLESCROLL : PlayState.STRUM_X) + 50;
 		// MAKE SURE ITS DEFINITELY OFF SCREEN?
-		y -= 2000;
+		y = -2000;
 		this.strumTime = strumTime;
 		if(!inEditor) this.strumTime += ClientPrefs.data.noteOffset;
 
 		this.noteData = noteData;
 
 		if(noteData > -1) {
-			texture = '';
-			rgbShader = new RGBShaderReference(this, initializeGlobalRGBShader(noteData));
-			if(PlayState.SONG != null && PlayState.SONG.disableNoteRGB) rgbShader.enabled = false;
+			// 池复用时 texture 已经是 '', 赋值不会触发 set_texture → 显式重建;
+			// 首次构造/换皮肤时交给 setter 重建(它只在 texture != value 时触发)
+			if (texture == '') reloadNote('');
+			else texture = '';
+			if (rgbShader == null)
+				rgbShader = new RGBShaderReference(this, initializeGlobalRGBShader(noteData));
+			else
+				rgbShader.reload(initializeGlobalRGBShader(noteData));	// 指回共享调色板, 丢弃上一次的私有副本
+			rgbShader.enabled = !(PlayState.SONG != null && PlayState.SONG.disableNoteRGB);
 
 			x += swagWidth * (noteData);
 			if(!isSustainNote && noteData < colArray.length) { //Doing this 'if' check to fix the warnings on Senpai songs
 				var animToPlay:String = '';
 				animToPlay = colArray[noteData % colArray.length];
-				animation.play(animToPlay + 'Scroll');
+				animation.play(animToPlay + 'Scroll', true);
 			}
 		}
 
@@ -258,7 +403,7 @@ class Note extends FlxSprite
 			offsetX += width / 2;
 			copyAngle = false;
 
-			animation.play(colArray[noteData % colArray.length] + 'holdend');
+			animation.play(colArray[noteData % colArray.length] + 'holdend', true);
 
 			updateHitbox();
 
@@ -295,6 +440,10 @@ class Note extends FlxSprite
 			centerOrigin();
 		}
 		x += offsetX;
+
+		// 上一世若是被裁剪的 sustain, 不清会整根不可见(必须放在帧/动画重建之后,
+		// 否则 Note.set_clipRect 会用旧帧表的 frameIndex 取帧)
+		if (clipRect != null) clipRect = null;
 	}
 
 	public static function initializeGlobalRGBShader(noteData:Int)

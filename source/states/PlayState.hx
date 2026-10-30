@@ -1223,7 +1223,7 @@ class PlayState extends MusicBeatState
 
 				daNote.kill();
 				unspawnNotes.remove(daNote);
-				daNote.destroy();
+				daNote.recycle();	// C1: 跳过的时间段音符也回收进池
 			}
 			--i;
 		}
@@ -1608,7 +1608,8 @@ class PlayState extends MusicBeatState
 		if (unspawnNotes.length > 0)
 			oldNote = unspawnNotes[unspawnNotes.length - 1];
 
-		var swagNote:Note = new Note(daStrumTime, daNoteData, oldNote);
+		// C1: 从对象池取音符(池空时才 new), 避免每音符构造/销毁的 GC 抖动
+		var swagNote:Note = Note.obtain(daStrumTime, daNoteData, oldNote);
 		swagNote.mustPress = gottaHitNote;
 		swagNote.sustainLength = chartSus[idx];
 		swagNote.gfNote = chartGf[idx];
@@ -1625,7 +1626,7 @@ class PlayState extends MusicBeatState
 			{
 				oldNote = unspawnNotes[unspawnNotes.length - 1];
 
-				var sustainNote:Note = new Note(daStrumTime + (chartStepCrochet * susNote), daNoteData, oldNote, true);
+				var sustainNote:Note = Note.obtain(daStrumTime + (chartStepCrochet * susNote), daNoteData, oldNote, true);
 				sustainNote.mustPress = gottaHitNote;
 				sustainNote.gfNote = chartGf[idx];
 				sustainNote.noteType = swagNote.noteType;
@@ -2859,9 +2860,16 @@ class PlayState extends MusicBeatState
 			daNote.visible = false;
 			invalidateNote(daNote);
 		}
-		unspawnNotes = [];
+		// C1: 未生成的音符也回收进池(旧实现直接丢引用, 这些对象只能等 GC)
+		while (unspawnNotes.length > 0)
+		{
+			var daNote:Note = unspawnNotes.pop();
+			if (daNote != null) daNote.recycle();
+		}
 		eventNotes = [];
 		evtIdx = 0;
+		// C1 诊断: 新建/复用计数, 下次日志可直接确认对象池是否生效
+		backend.PerfProbe.log('[池] 音符 新建=' + Note.createdCount + ' 复用=' + Note.reusedCount + ' 池=' + Note.pool.length);
 	}
 
 	public var totalPlayed:Int = 0;
@@ -3664,7 +3672,7 @@ class PlayState extends MusicBeatState
 	public function invalidateNote(note:Note):Void {
 		note.kill();
 		notes.remove(note, true);
-		note.destroy();
+		note.recycle();	// C1: 回收进对象池(替代 destroy, 免每音符堆分配)
 	}
 
 	public function spawnNoteSplashOnNote(note:Note) {
@@ -3682,6 +3690,29 @@ class PlayState extends MusicBeatState
 	}
 
 	override function destroy() {
+		// C1: 状态销毁前把剩余音符回收进池(旧实现随 group 一起 destroy), 下一首歌/重开可直接复用
+		if (notes != null)
+		{
+			while (notes.length > 0)
+			{
+				var daNote:Note = notes.members[0];
+				daNote.active = false;
+				daNote.visible = false;
+				notes.remove(daNote, true);
+				daNote.recycle();
+			}
+		}
+		if (unspawnNotes != null)
+		{
+			while (unspawnNotes.length > 0)
+			{
+				var daNote:Note = unspawnNotes.pop();
+				if (daNote != null) daNote.recycle();
+			}
+		}
+		// C1 诊断: 一趟打歌结束后新建/复用计数, 用于确认对象池生效
+		backend.PerfProbe.log('[池] 音符 新建=' + Note.createdCount + ' 复用=' + Note.reusedCount + ' 池=' + Note.pool.length);
+
 		#if LUA_ALLOWED
 		for (lua in luaArray)
 		{
