@@ -51,6 +51,9 @@ class PerfProbe
 	static var lastBreakMs:Float = -100000;
 	// D1: 内存分解(贴图缓存遍历+/proc 读取)开关, 默认关避免周期性尖帧
 	public static var memBreakdown:Bool = false;
+	// 供 FPS 卡片显示的上一秒平均更新/绘制耗时(ms)
+	public static var lastUpdAvg:Float = 0;
+	public static var lastDrawAvg:Float = 0;
 
 	// 段级聚合(状态切换时输出小结) + 全场累计
 	static var segStartMs:Float = 0;
@@ -172,6 +175,9 @@ class PerfProbe
 			var sec:Float = (now - secStartMs) / 1000;
 			var updAvg:Float = updSum / Math.max(1, secFrames);
 			var drawAvg:Float = drawSum / Math.max(1, secFrames);
+			// 供 FPS 卡片显示(每秒刷新)
+			lastUpdAvg = updAvg;
+			lastDrawAvg = drawAvg;
 			var memLine:String = '';
 			#if cpp
 			// 内存分解: 实用(真数据) / 堆总量(实用+空闲+垃圾), 差值即 GC 策略的代价

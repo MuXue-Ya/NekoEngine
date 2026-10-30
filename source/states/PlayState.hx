@@ -642,6 +642,8 @@ class PlayState extends MusicBeatState
 		
 		addMobileControls(false, camOther);	// 复用恒等相机, 省一张全屏画布
 		hitbox.visible = false;
+		// 直连触控: 按下瞬间结算(不等下一帧), 见 onDirectTouchBegin
+		if (DIRECT_TOUCH) FlxG.stage.addEventListener(openfl.events.TouchEvent.TOUCH_BEGIN, onDirectTouchBegin);
 		#end
 
 		// ===== 窗口化兼容(旧式 mod 脚本): 带音符类型/事件脚本的谱面按原版全量实例化 =====
@@ -3261,7 +3263,64 @@ class PlayState extends MusicBeatState
 		}
 	}
 
-	private function keyPressed(key:Int)
+	#if mobile
+	// ===== 直连触控: 按下瞬间结算, 不等下一帧 =====
+	// 旧链路: TOUCH_BEGIN → flixel 每帧轮询 → keysCheck 里 controllerMode 翻转 → keyPressed,
+	// 最多晚一帧(16.7ms; 掉帧/GC 停顿时更久), 且判定用"帧时刻 - 半帧"近似。
+	// 新链路: 事件到达即用音频时钟的实时值判定, 并标记该轨道已消费, 帧轮询跳过这一次 press。
+	static inline var DIRECT_TOUCH:Bool = true;
+	var directTapFrames:Array<Int> = [-999, -999, -999, -999];	// 各轨道上次被即时通道消费的帧号(每轨独立, 支持多指和弦)
+	static inline var DIRECT_TAP_EXPIRE:Int = 2;				// 超过 2 帧仍未消费就作废, 防止误吞后续按键
+
+	function onDirectTouchBegin(e:openfl.events.TouchEvent):Void
+	{
+		if (!DIRECT_TOUCH) return;
+		if (!startedCountdown || paused || inCutscene || endingSong || cpuControlled) return;
+		if (!generatedMusic || boyfriend == null || boyfriend.stunned) return;
+
+		// 取刚按下的触点: flixel 的触摸管理器先于本监听器注册, 此刻应已在列表里;
+		// 拿不到就什么都不做, 完全回退给帧轮询(不会重复计入)
+		var touch:flixel.input.touch.FlxTouch = null;
+		for (t in FlxG.touches.list)
+		{
+			if (t != null && t.touchPointID == e.touchPointID) { touch = t; break; }
+		}
+		if (touch == null) return;
+
+		var cam:FlxCamera = null;
+		if (hitbox != null && hitbox.cameras != null && hitbox.cameras.length > 0) cam = hitbox.cameras[0];
+		if (cam == null) cam = FlxG.camera;
+		if (cam == null) return;
+
+		var p:FlxPoint = FlxPoint.get();
+		touch.getWorldPosition(cam, p);
+		var lane:Int = -1;
+		if (hitbox != null && hitbox.buttons != null)
+		{
+			for (i in 0...hitbox.buttons.length)
+			{
+				var b = hitbox.buttons[i];
+				if (b == null) continue;
+				if (p.x >= b.x && p.x <= b.x + b.width && p.y >= b.y && p.y <= b.y + b.height)
+				{
+					lane = i;
+					break;
+				}
+			}
+		}
+		p.put();
+
+		if (lane < 0 || lane > 3) return;
+		if (playerStrums == null || lane >= playerStrums.length) return;
+		if (strumsBlocked[lane] == true) return;
+
+		// 标记消费(帧轮询里跳过该轨道的 justPressed), 然后立刻结算
+		directTapFrames[lane] = FlxG.game.ticks;
+		keyPressed(lane, 0);	// comp=0: 此刻 music.time 就是真实播放位置, 无需半帧补偿
+	}
+	#end
+
+	private function keyPressed(key:Int, ?compOverride:Float = -1)
 	{
 		if(cpuControlled || paused || inCutscene || key < 0 || key >= playerStrums.length || !generatedMusic || endingSong || boyfriend.stunned) return;
 
@@ -3274,7 +3333,8 @@ class PlayState extends MusicBeatState
 		{
 			// 判定补偿: 按压发生在本帧内的某个时刻, 判定时间回扣本帧时长的一半(按回放速率换算成歌曲时间)
 			// (60fps 稳态 -8.3ms; 掉帧 33ms 时 -16.7ms, 把采样误差上限从整帧降到半帧)
-			var comp:Float = ClientPrefs.data.judgeCompensation ? FlxG.elapsed * 500 * playbackRate : 0;
+			// 直连触控路径传入 compOverride=0: 事件到达时读到的 music.time 就是当下真实位置
+			var comp:Float = (compOverride >= 0) ? compOverride : (ClientPrefs.data.judgeCompensation ? FlxG.elapsed * 500 * playbackRate : 0);
 			Conductor.songPosition = FlxG.sound.music.time - comp;
 		}
 
@@ -3428,7 +3488,18 @@ class PlayState extends MusicBeatState
 		if(controls.controllerMode && anyPressed)
 			for (i in 0...keysArray.length)
 				if(pressStates[i] && strumsBlocked[i] != true)
+				{
+					#if mobile
+					if (DIRECT_TOUCH && i < directTapFrames.length
+						&& FlxG.game.ticks - directTapFrames[i] >= 0
+						&& FlxG.game.ticks - directTapFrames[i] <= DIRECT_TAP_EXPIRE)
+					{
+						directTapFrames[i] = -999;	// 这一次按下已由 onDirectTouchBegin 即时结算, 帧轮询不再重复计入
+						continue;
+					}
+					#end
 					keyPressed(i);
+				}
 
 		if (startedCountdown && !inCutscene && !boyfriend.stunned && generatedMusic)
 		{
@@ -3770,6 +3841,10 @@ class PlayState extends MusicBeatState
 		}
 		// C1 诊断: 一趟打歌结束后新建/复用计数, 用于确认对象池生效
 		backend.PerfProbe.log('[池] 音符 新建=' + Note.createdCount + ' 复用=' + Note.reusedCount + ' 池=' + Note.pool.length);
+
+		#if mobile
+		FlxG.stage.removeEventListener(openfl.events.TouchEvent.TOUCH_BEGIN, onDirectTouchBegin);
+		#end
 
 		#if LUA_ALLOWED
 		for (lua in luaArray)
