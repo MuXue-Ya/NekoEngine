@@ -740,10 +740,19 @@ class PlayState extends MusicBeatState
 		for (i in 1...4) Paths.sound('missnote$i');
 		Paths.image('alphabet');
 
+		// 音符溅射图集: 首次击中才加载实测卡 167ms(尖帧 209ms), 提前在加载阶段消化
+		// 取法与 NoteSplash.setupNoteSplash 保持一致(自定义 splashSkin 优先, 否则默认皮肤+像素后缀)
+		var splashSkin:String = (SONG.splashSkin != null && SONG.splashSkin.length > 0) ? SONG.splashSkin : (NoteSplash.defaultNoteSplash + NoteSplash.getSplashSkinPostfix());
+		Paths.getSparrowAtlas(splashSkin);
+
 		if (PauseSubState.songName != null)
 			Paths.music(PauseSubState.songName);
 		else if(Paths.formatToSongPath(ClientPrefs.data.pauseMusic) != 'none')
 			Paths.music(Paths.formatToSongPath(ClientPrefs.data.pauseMusic));
+
+		// 退出打歌要放的菜单曲: 不预载实测卡 265ms(尖帧 303ms)
+		if (Paths.formatToSongPath(ClientPrefs.data.pauseMusic) != 'freakymenu')
+			Paths.music('freakyMenu');
 
 		resetRPC();
 
@@ -1856,6 +1865,16 @@ class PlayState extends MusicBeatState
 	{
 		if(finishTimer != null) return;
 
+		// 诊断: 记录每次重同步的偏差, 用于验证"人声卡"是否由高频 resync 引起
+		#if mobile
+		resyncCount++;
+		backend.PerfProbe.log('[音画] resync #' + resyncCount
+			+ ' music=' + Math.round(FlxG.sound.music.time)
+			+ ' song=' + Math.round(Conductor.songPosition)
+			+ ' vocals=' + Math.round(vocals.time)
+			+ ' opp=' + Math.round(opponentVocals.time));
+		#end
+
 		vocals.pause();
 		opponentVocals.pause();
 
@@ -1951,12 +1970,19 @@ class PlayState extends MusicBeatState
 		{
 			Conductor.songPosition += FlxG.elapsed * 1000 * playbackRate;
 
-			// 音画对齐: 谱面时钟为纯积分, 与音频时钟存在固定起点差(实测约100ms, 音符视觉晚到->判定全偏)
-			// 偏差超阈值时硬对齐到音频时钟; 两者速率一致, 通常只需触发一次。
-			// 死区 50→25ms: 实测漂移在 -6~-35ms 缓慢游走(非高频抖动), 收紧后最坏视音偏移减半; 漂移超 25ms 即回贴音频时钟
-			if (!startingSong && updateTime && FlxG.sound.music != null && FlxG.sound.music.playing
-				&& Math.abs(FlxG.sound.music.time - Conductor.songPosition) > 25)
-				Conductor.songPosition = FlxG.sound.music.time;
+			// 音画对齐: 由"积分到 ±25ms 再硬贴"改为"每帧向音频时钟软收敛"。
+			// 硬贴会形成锯齿(perf_log 实测 |drift| 被夹在 15~25ms 且 >25ms 样本为 0),
+			// 而 stepHit 用 20ms 判据判重同步 → 持续触发 resyncVocals()(vocals.pause()+play()),
+			// 听感就是人声每 ~1s 断一次。软收敛稳态误差 <5ms, 既不会触发 resync, 判定时钟也更贴音频。
+			if (!startingSong && FlxG.sound.music != null && FlxG.sound.music.playing)
+			{
+				var audioPos:Float = FlxG.sound.music.time;
+				var clockDiff:Float = audioPos - Conductor.songPosition;
+				if (Math.abs(clockDiff) > 200)	// 大跳(seek/恢复/严重掉帧)才硬贴
+					Conductor.songPosition = audioPos;
+				else
+					Conductor.songPosition += clockDiff * 0.15;	// 软收敛, 时间常数约 0.1s
+			}
 		}
 
 		if (startingSong)
@@ -3693,12 +3719,17 @@ class PlayState extends MusicBeatState
 	}
 
 	var lastStepHit:Int = -1;
+	var resyncCount:Int = 0;	// 诊断: resync 次数写入 perf_log, 用来验证"人声卡"是否消失
 	override function stepHit()
 	{
 		if (SONG.needsVoices && FlxG.sound.music.time >= -ClientPrefs.data.noteOffset)
 		{
 			var timeSub:Float = Conductor.songPosition - Conductor.offset;
-			var syncTime:Float = 20 * playbackRate;
+			// 阈值 20ms → 120ms: 20ms 判据与 update 的 25ms 死区重叠, 实测 |drift| 长期贴着 15~25ms,
+			// 等于每 step 都可能判重同步; 而 resyncVocals() = vocals.pause()+time+play(), 每次都会打断人声流
+			// (每秒 1 次以上即可闻"卡卡的")。人耳对音画不同步可容忍 ~100ms, 对音频中断零容忍,
+			// 因此只在真正漂移时修, 放宽到 120ms。
+			var syncTime:Float = Math.max(120, 120 * playbackRate);
 			if (Math.abs(FlxG.sound.music.time - timeSub) > syncTime ||
 			(vocals.length > 0 && Math.abs(vocals.time - timeSub) > syncTime) ||
 			(opponentVocals.length > 0 && Math.abs(opponentVocals.time - timeSub) > syncTime))

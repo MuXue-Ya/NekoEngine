@@ -535,6 +535,7 @@ class PerfProbe
 
 	// 音画时钟漂移: music.time(音频真实位置) - Conductor.songPosition(谱面时钟)
 	// 正值=谱面时钟落后(音符会晚到), 持续增大=谱面被"放慢"的直接证据; rate=回放速度(gameplaySettings 持久化)
+	// v= 人声轨与伴奏轨的位置差(vocals.time - music.time): |v| 大了才会触发 stepHit 的人声重同步
 	static function driftLine():String
 	{
 		#if (cpp && mobile)
@@ -542,7 +543,9 @@ class PerfProbe
 		if (ps == null || FlxG.sound.music == null || !FlxG.sound.music.playing) return '';
 		@:privateAccess if (!ps.generatedMusic) return '';
 		var drift:Float = FlxG.sound.music.time - Conductor.songPosition;
-		return ' drift=' + Math.round(drift) + 'ms rate=' + r1(ps.playbackRate);
+		var vocalDelta:Float = 0;
+		if (ps.vocals != null && ps.vocals.length > 0) vocalDelta = ps.vocals.time - FlxG.sound.music.time;
+		return ' drift=' + Math.round(drift) + 'ms v=' + Math.round(vocalDelta) + 'ms rate=' + r1(ps.playbackRate);
 		#end
 		return '';
 	}
