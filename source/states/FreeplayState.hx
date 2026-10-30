@@ -77,6 +77,9 @@ class FreeplayState extends MusicBeatState
 	var lerpRating:Float = 0;
 	var intendedScore:Int = 0;
 	var intendedRating:Float = 0;
+	// A6: 上次渲染的分数/准确率 —— lerp 稳定后不再每帧重算字符串与重光栅化文本
+	var lastRenderedScore:Int = -1;
+	var lastRenderedRating:Float = Math.NaN;
 
 	private var instPlaying:Int = -1;
 	public static var vocals:FlxSound = null;
@@ -678,15 +681,6 @@ class FreeplayState extends MusicBeatState
 		if (Math.abs(lerpRating - intendedRating) <= 0.01)
 			lerpRating = intendedRating;
 
-		var ratingSplit:Array<String> = Std.string(CoolUtil.floorDecimal(lerpRating * 100, 2)).split('.');
-		if(ratingSplit.length < 2) { //No decimals, add an empty space
-			ratingSplit.push('');
-		}
-
-		while(ratingSplit[1].length < 2) { //Less than 2 decimals in it, add decimals then
-			ratingSplit[1] += '0';
-		}
-
 		// 试听按钮动态标签: 未播=试听, 播放中=暂停, 已暂停=继续
 		var listenLabel:String = (instPlaying == curSelected && player.playingMusic) ? (player.paused ? '继续试听' : '暂停') : '试听';
 		if (listenText.text != listenLabel)
@@ -697,8 +691,25 @@ class FreeplayState extends MusicBeatState
 
 		if (!player.playingMusic)
 		{
-			bestValueText.text = '' + lerpScore;
-			ratingText.text = '准确率 ' + ratingSplit.join('.') + '%';
+			// A6: 只在数值真的变化时重建字符串/写 .text —— lerp 结束后这里原是每帧全量重算
+			if (lastRenderedScore != lerpScore)
+			{
+				lastRenderedScore = lerpScore;
+				bestValueText.text = '' + lerpScore;
+			}
+			if (lastRenderedRating != lerpRating)
+			{
+				lastRenderedRating = lerpRating;
+				var ratingSplit:Array<String> = Std.string(CoolUtil.floorDecimal(lerpRating * 100, 2)).split('.');
+				if(ratingSplit.length < 2) { //No decimals, add an empty space
+					ratingSplit.push('');
+				}
+
+				while(ratingSplit[1].length < 2) { //Less than 2 decimals in it, add decimals then
+					ratingSplit[1] += '0';
+				}
+				ratingText.text = '准确率 ' + ratingSplit.join('.') + '%';
+			}
 
 			if(songs.length > 1)
 			{

@@ -7,6 +7,7 @@ import flixel.util.FlxDestroyUtil;
 
 import openfl.utils.AssetType;
 import openfl.utils.Assets;
+import StringTools;
 import haxe.Json;
 
 import backend.Song;
@@ -71,6 +72,7 @@ class Character extends FlxSprite
 	public var healthColorArray:Array<Int> = [255, 0, 0];
 
 	public var hasMissAnimations:Bool = false;
+	public var hasLoopAnims:Bool = false;	// B7: 是否存在 "-loop" 后缀动画(addOffset 时检测)
 	public var vocalsFile:String = '';
 
 	//Used on Character Editor
@@ -287,9 +289,13 @@ class Character extends FlxSprite
 			holdTimer = 0;
 		}
 
-		var name:String = getAnimationName();
-		if(isAnimationFinished() && animOffsets.exists('$name-loop'))
-			playAnim('$name-loop');
+		// B7: 只在角色真的配了 "-loop" 动画时才拼串查询(绝大多数角色没有, 原本每帧每角色白拼一次)
+		if (hasLoopAnims)
+		{
+			var name:String = getAnimationName();
+			if(isAnimationFinished() && animOffsets.exists(name + '-loop'))
+				playAnim(name + '-loop');
+		}
 
 		super.update(elapsed);
 	}
@@ -435,6 +441,8 @@ class Character extends FlxSprite
 	public function addOffset(name:String, x:Float = 0, y:Float = 0)
 	{
 		animOffsets[name] = [x, y];
+		// B7: 记录是否存在 "-loop" 后缀动画 —— update 里免每帧拼串查询
+		if (name != null && StringTools.endsWith(name, '-loop')) hasLoopAnims = true;
 	}
 
 	public function quickAnimAdd(name:String, anim:String)

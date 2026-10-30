@@ -181,11 +181,13 @@ class MusicBeatState extends FlxUIState
 			}
 		}
 
-		if(FlxG.save.data != null) FlxG.save.data.fullscreen = FlxG.fullscreen;
-		
-		stagesFunc(function(stage:BaseStage) {
-			stage.update(elapsed);
-		});
+		// B10: 按变化写, 免每帧写存档对象
+		if(FlxG.save.data != null && FlxG.save.data.fullscreen != FlxG.fullscreen) FlxG.save.data.fullscreen = FlxG.fullscreen;
+
+		// B10: 内联遍历替代每帧闭包(stagesFunc(function(stage){...}))
+		for (stage in stages)
+			if(stage != null && stage.exists && stage.active)
+				stage.update(elapsed);
 
 		super.update(elapsed);
 	}

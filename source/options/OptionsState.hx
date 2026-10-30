@@ -60,6 +60,11 @@ class OptionsState extends MusicBeatState
 	var switches:Array<MD3Switch> = [];
 	var sliders:Array<MD3Slider> = [];
 	var valueTexts:Array<FlxText> = [];
+	// A5: 每行值文本的上次渲染值 —— 值没变就不重算字符串/不写 .text
+	var valueTextLastVal:Array<Dynamic> = [];
+	// A4: 滑条拖动落盘防抖 —— 拖动时每步都 saveSettings()(内部 flush 两个存档文件)会卡菜单
+	var sliderSavePending:Bool = false;
+	var sliderSaveTimer:Float = 0;
 	var rightTitle:FlxText;
 	var descText:FlxText;
 	var descBox:FlxSprite;
@@ -438,6 +443,7 @@ class OptionsState extends MusicBeatState
 		switches = [for (i in 0...optionsArray.length) null];
 		sliders = [for (i in 0...optionsArray.length) null];
 		valueTexts = [for (i in 0...optionsArray.length) null];
+		valueTextLastVal = [for (i in 0...optionsArray.length) null];
 		optionCards = [];
 		rightTitle.text = cat;
 
@@ -476,7 +482,9 @@ class OptionsState extends MusicBeatState
 					opt.setValue(sl.value);
 					opt.change();
 					updateTextFrom(opt);
-					ClientPrefs.saveSettings();
+					// 防抖: 拖动中不落盘, 停手 0.4s 后统一保存(goBack/destroy 仍会强制保存兜底)
+					sliderSavePending = true;
+					sliderSaveTimer = 0.4;
 				};
 				sliders[i] = sl;
 				grpWidgets.add(sl);
@@ -617,6 +625,17 @@ class OptionsState extends MusicBeatState
 	{
 		super.update(elapsed);
 
+		// A4: 滑条落盘防抖 —— 停止拖动 0.4s 后才真正写盘
+		if (sliderSavePending)
+		{
+			sliderSaveTimer -= elapsed;
+			if (sliderSaveTimer <= 0)
+			{
+				sliderSavePending = false;
+				ClientPrefs.saveSettings();
+			}
+		}
+
 		// 选项行定位(滚动窗口内) + 卡片跟随 + 选中高亮 + 越界隐藏
 		for (i in 0...grpOptions.members.length)
 		{
@@ -665,10 +684,15 @@ class OptionsState extends MusicBeatState
 				valueTexts[i].visible = row.visible;
 				// Option.text 是转发给 child(原版AttachedText)的代理, 本界面没有 child 会返回 null
 				// 所以直接按 displayFormat 现算: %v=当前值 %d=默认值, percent 自动 x100
-				var disp:String = opt.displayFormat;
+				// A5: 值没变就跳过 —— 旧写法每帧对每行做两次 String.replace + 写 .text
 				var val:Dynamic = opt.getValue();
 				if (opt.type == 'percent') val = FlxMath.roundDecimal(val * 100, opt.decimals);
-				valueTexts[i].text = disp.replace('%v', Std.string(val)).replace('%d', Std.string(opt.defaultValue));
+				if (valueTextLastVal[i] != val)
+				{
+					valueTextLastVal[i] = val;
+					var disp:String = opt.displayFormat;
+					valueTexts[i].text = disp.replace('%v', Std.string(val)).replace('%d', Std.string(opt.defaultValue));
+				}
 				valueTexts[i].alpha = (i == curSelected) ? 1 : 0.6;
 			}
 		}

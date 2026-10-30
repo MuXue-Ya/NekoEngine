@@ -215,7 +215,7 @@ class Main extends Sprite
 					var prefix:String = '';
 					if (si != null)
 						prefix = Std.string(si) + " / ";
-					var lineStr:String = "  at " + prefix + file + " (line " + line + ")";
+					// E1: 原先同一作用域里声明了两次 lineStr(release 会编译报错)
 					var lineStr:String = "  at " + prefix + file + " (line " + line + ")";
 					stackStr += lineStr + "\n";
 					if (firstStack == '') firstStack = prefix + file + " (line " + line + ")";
@@ -234,14 +234,18 @@ class Main extends Sprite
 		var devAndroid:String = '';
 		try {
 			var inp = sys.io.File.read("/system/build.prop", false);
-			var line:String = "";
-			while (true)
-			{
-				if (devModel == '' && StringTools.startsWith(line, "ro.product.model="))
-					devModel = line.substr("ro.product.model=".length).trim();
-				else if (devAndroid == '' && StringTools.startsWith(line, "ro.build.version.release="))
-					devAndroid = line.substr("ro.build.version.release=".length).trim();
-			}
+			// E2: 原先 while(true) 从不读流、line 从未赋值 → 崩溃处理直接死循环卡死
+			try {
+				while (!inp.eof())
+				{
+					var line:String = inp.readLine();
+					if (devModel == '' && StringTools.startsWith(line, "ro.product.model="))
+						devModel = line.substr("ro.product.model=".length).trim();
+					else if (devAndroid == '' && StringTools.startsWith(line, "ro.build.version.release="))
+						devAndroid = line.substr("ro.build.version.release=".length).trim();
+					if (devModel != '' && devAndroid != '') break;	// 两个字段都拿到就提前收工
+				}
+			} catch (eRead:Dynamic) {}	// eof/IO 异常都兜住, 保证 close
 			inp.close();
 		} catch (devE:Dynamic) {}
 		errMsg += "设备 / Device: " + (devModel != '' ? devModel : 'unknown');

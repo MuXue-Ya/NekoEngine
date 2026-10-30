@@ -160,8 +160,24 @@ class StorageSystem
 			var dataPath:String = getDirectory();
 			var needFullExtract:Bool = false;
 
+			// ===== 版本标记: 校验过且版本未变时跳过逐文件完整性扫描 =====
+			// 旧逻辑每次冷启动都对全部资产逐个 stat(本仓 485 文件 ≈ 上千次系统调用),
+			// Android 外置存储上约多花 0.5~1.5s; 加标记后降为"每次升版本后一次"。
+			// 注意: 更新 APK 内置资源但没升 version 时, 缺失文件不会自动补 —— 发版请同步升版本号。
+			var appVer:String = '0';
+			try { appVer = lime.app.Application.current.meta.get('version'); } catch (eVer:Dynamic) {}
+			var markerPath:String = dataPath + '.assets_ver';
+			var assetsOk:Bool = FileSystem.exists(dataPath + "assets");
+			var modsOk:Bool = FileSystem.exists(dataPath + "mods");
+			if (assetsOk && modsOk && FileSystem.exists(markerPath))
+			{
+				var savedVer:String = '';
+				try { savedVer = File.getContent(markerPath); } catch (eMk:Dynamic) {}
+				if (savedVer == appVer) return; // 与上次同版本, 跳过扫描
+			}
+
 			// 资源: 不存在 → 完整解压; 已存在 → 只补缺失(不覆盖玩家改动)
-			if (!FileSystem.exists(dataPath + "assets"))
+			if (!assetsOk)
 			{
 				needFullExtract = true;
 				copyFromAPK("assets/", null, true, dataPath);
@@ -173,7 +189,7 @@ class StorageSystem
 			}
 
 			// mod: 不存在 → 解压内置示例; 已存在 → 完全不动玩家的 mods
-			if (!FileSystem.exists(dataPath + "mods"))
+			if (!modsOk)
 			{
 				needFullExtract = true;
 				copyFromAPK("mods/", null, true, dataPath);
@@ -185,6 +201,9 @@ class StorageSystem
 					lime.system.System.exit(0);
 				});
 			}
+
+			// 本轮校验/解压完成, 写标记供下次启动短路
+			try { File.saveContent(markerPath, appVer); } catch (eW:Dynamic) {}
 		}
 		catch (e:Dynamic)
 		{

@@ -9,7 +9,6 @@ import openfl.display.BitmapData;
 import openfl.display3D.textures.RectangleTexture;
 import openfl.utils.AssetType;
 import openfl.utils.Assets as OpenFlAssets;
-import openfl.system.System;
 import openfl.geom.Rectangle;
 
 #if sys
@@ -50,7 +49,7 @@ class Paths
 		// clear non local assets in the tracked assets list
 		for (key in currentTrackedAssets.keys()) {
 			// if it is not currently contained within the used local assets
-			if (!localTrackedAssets.contains(key) && !dumpExclusions.contains(key)) {
+			if (!localTrackedAssets.exists(key) && !dumpExclusions.contains(key)) {
 				var obj = currentTrackedAssets.get(key);
 				@:privateAccess
 				if (obj != null) {
@@ -70,14 +69,17 @@ class Paths
 		pathCache.clear();
 		fileExistsCache.clear();
 
-		System.gc();
+		// 注: 不再强制 System.gc() —— 本机实测单次 GC 0.4~1.1s(见 Main.hx 注释),
+		// 每次切界面都白送一次长暂停; 改由 setMinimumFreeSpace(48MB) 按需自然触发
 	}
 
 	// define the locally tracked assets
-	public static var localTrackedAssets:Array<String> = [];
+	// 改为 Map 去重: 旧 Array 每次 push 无判重, 一首歌能堆上万条重复项,
+	// 而清理侧 contains() 是线性扫 → O(资产数×条目数) 的字符串比较雪崩
+	public static var localTrackedAssets:Map<String, Bool> = new Map<String, Bool>();
 	public static function clearStoredMemory() {
 		// 先重置跟踪表: 否则上一状态的 Inst/Voices 等声音因 key 在表内而永远清不掉
-		localTrackedAssets = [];
+		localTrackedAssets.clear();
 
 		// clear anything not in the tracked assets list
 		@:privateAccess
@@ -95,7 +97,7 @@ class Paths
 		// clear all sounds that are cached
 		for (key => asset in currentTrackedSounds)
 		{
-			if (!localTrackedAssets.contains(key) && !dumpExclusions.contains(key) && asset != null)
+			if (!localTrackedAssets.exists(key) && !dumpExclusions.contains(key) && asset != null)
 			{
 				Assets.cache.clear(key);
 				currentTrackedSounds.remove(key);
@@ -228,7 +230,7 @@ class Paths
 		{
 			var gpV:String = '$songKey.$SOUND_EXT';
 			currentTrackedSounds.set(gpV, preV);
-			localTrackedAssets.push(gpV);
+			localTrackedAssets.set(gpV, true);
 			return preV;
 		}
 		#end
@@ -246,7 +248,7 @@ class Paths
 		{
 			var gpI:String = '$songKey.$SOUND_EXT';
 			currentTrackedSounds.set(gpI, preI);
-			localTrackedAssets.push(gpI);
+			localTrackedAssets.set(gpI, true);
 			return preI;
 		}
 		#end
@@ -300,7 +302,7 @@ class Paths
 		var cachedAstc = currentTrackedAssets.get(fileAstc);
 		if (cachedAstc != null)
 		{
-			localTrackedAssets.push(fileAstc);
+			localTrackedAssets.set(fileAstc, true);
 			return cachedAstc;
 		}
 		else if (FileSystem.exists(fileAstc))
@@ -317,7 +319,7 @@ class Paths
 			
 			if (cachedPng != null)
 			{
-				localTrackedAssets.push(filePng);
+				localTrackedAssets.set(filePng, true);
 				return cachedPng;
 			}
 			else if (FileSystem.exists(filePng))
@@ -340,7 +342,7 @@ class Paths
 			var cachedPathAstc = currentTrackedAssets.get(pathAstc);
 			if (cachedPathAstc != null)
 			{
-				localTrackedAssets.push(pathAstc);
+				localTrackedAssets.set(pathAstc, true);
 				return cachedPathAstc;
 			}
 			else if (OpenFlAssets.exists(pathAstc))
@@ -355,7 +357,7 @@ class Paths
 				var cachedPathPng = currentTrackedAssets.get(pathPng);
 				if (cachedPathPng != null)
 				{
-					localTrackedAssets.push(pathPng);
+					localTrackedAssets.set(pathPng, true);
 					return cachedPathPng;
 				}
 				else if (OpenFlAssets.exists(pathPng, IMAGE))
@@ -414,7 +416,7 @@ class Paths
 			if(bitmap == null) return null;
 		}
 
-		localTrackedAssets.push(file);
+		localTrackedAssets.set(file, true);
 		
 		var isAstc:Bool = false;
 		#if ASTC_SUPPORT
@@ -615,7 +617,7 @@ class Paths
 				logSlowLoad('音频', file, haxe.Timer.stamp() * 1000 - t0);
 				currentTrackedSounds.set(file, cachedModSound);
 			}
-			localTrackedAssets.push(file);
+			localTrackedAssets.set(file, true);
 			return cachedModSound;
 		}
 		#end
@@ -636,7 +638,7 @@ class Paths
 				currentTrackedSounds.set(gottenPath, cachedSound);
 			}
 		}
-		localTrackedAssets.push(gottenPath);
+		localTrackedAssets.set(gottenPath, true);
 		return cachedSound;
 	}
 

@@ -372,9 +372,10 @@ class GameplayChangersSubstate extends MusicBeatSubstate
 						}
 					}
 				}
-				backend.PerfProbe.log('[触控] down x=' + Math.round(touch.x) + ' y=' + Math.round(touch.y) + ' ' + dbgDesc);
+				// D3: 触点日志并入 touchDebug 门控 —— 原本每次触屏都写一行进 PerfProbe 缓冲
 				if (touchDebug)
 				{
+					backend.PerfProbe.log('[触控] down x=' + Math.round(touch.x) + ' y=' + Math.round(touch.y) + ' ' + dbgDesc);
 					dbgHold = 0.6;
 					dbgText.text = '触点 x=' + Math.round(touch.x) + ' y=' + Math.round(touch.y) + '  ' + dbgDesc;
 					dbgDot.setPosition(touch.x - 9, touch.y - 9);

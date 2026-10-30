@@ -234,8 +234,9 @@ class PauseSubState extends MusicBeatSubstate
 	var heartbeatT:Float = 0;
 	override function update(elapsed:Float)
 	{
+		// D2: 心跳降为 10s 一次 —— 原本每秒写日志并带动每 2s 落盘, 暂停菜单挂机时是周期性 I/O
 		heartbeatT += elapsed;
-		if (heartbeatT >= 1)
+		if (heartbeatT >= 10)
 		{
 			heartbeatT = 0;
 			backend.PerfProbe.log('[暂停] 心跳 persistentUpdate=' + FlxG.state.persistentUpdate

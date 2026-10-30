@@ -142,9 +142,17 @@ class FPSCounter extends Sprite
 
 	var deltaTimeout:Float = 0.0;
 
+	// A8: 环形时间窗 —— 替代 push+shift(每帧 O(n) 搬移)
+	static inline var TIMES_CAP:Int = 128;
+	var timesHead:Int = 0;	// 最旧元素位置
+	var timesCount:Int = 0;
+
 	// Event Handlers
 	private override function __enterFrame(deltaTime:Float):Void
 	{
+		// A8: 隐藏时彻底不干活(原本每帧仍跑时间窗/setScale, 每 150ms 还画 3 张曲线)
+		if (!visible) return;
+
 		// prevents the overlay from updating every frame, why would you need to anyways
 		if (deltaTimeout > 1000) {
 			deltaTimeout = 0.0;
@@ -152,10 +160,24 @@ class FPSCounter extends Sprite
 		}
 
 		final now:Float = haxe.Timer.stamp() * 1000;
-		times.push(now);
-		while (times[0] < now - 1000) times.shift();
+		// 写入环形缓冲; 窗口外(>1s)的最旧元素按需弹出
+		if (timesCount < TIMES_CAP)
+		{
+			times[(timesHead + timesCount) % TIMES_CAP] = now;
+			timesCount++;
+		}
+		else
+		{
+			times[timesHead] = now;
+			timesHead = (timesHead + 1) % TIMES_CAP;
+		}
+		while (timesCount > 0 && times[timesHead] < now - 1000)
+		{
+			timesHead = (timesHead + 1) % TIMES_CAP;
+			timesCount--;
+		}
 
-		currentFPS = times.length < FlxG.updateFramerate ? times.length : FlxG.updateFramerate;
+		currentFPS = timesCount < FlxG.updateFramerate ? timesCount : FlxG.updateFramerate;
 		// 文字每 200ms 刷一次; 曲线内部按 150ms 采样, 每帧只累积计时
 		textCooldown += deltaTime;
 		if (textCooldown >= 200)
@@ -227,12 +249,18 @@ class FPSCounter extends Sprite
 		plotBar(gcBD, GRAPH_H - gcH, COL_GC);
 	}
 
-	// 柱状图绘制: 半透明柱身 + 顶部2px全亮实心横线(柱帽), 无辉光, 边缘锐利
+	// 柱状图绘制: 半透明柱身 + 顶部2px全亮横线(柱帽) + 帽上1px微光, 每次只画最右一列
 	inline function plotBar(bd:BitmapData, y:Int, rgb:Int):Void
 	{
-		// 柱帽: 顶部亮横线(2px, 全亮度, 不透明)
+		// 柱帽: 顶部亮横线(2px, 全亮度)
 		_rect.x = GRAPH_W - 1; _rect.y = y; _rect.width = 1; _rect.height = 2;
 		bd.fillRect(_rect, 0xFF000000 | rgb);
+		// 柱帽上沿的辉光(1px, 低透明度)
+		if (y > 0)
+		{
+			_rect.y = y - 1; _rect.height = 1;
+			bd.fillRect(_rect, 0x66000000 | rgb);
+		}
 		// 柱身: 从柱帽往下到底, 半透明
 		_rect.y = y + 2; _rect.height = GRAPH_H - y - 2;
 		if (_rect.height > 0) bd.fillRect(_rect, 0x55000000 | rgb);

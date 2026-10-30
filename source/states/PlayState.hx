@@ -595,9 +595,11 @@ class PlayState extends MusicBeatState
 		iconP2.alpha = ClientPrefs.data.healthBarAlpha;
 		uiGroup.add(iconP2);
 
-		scoreTxt = new FlxText(0, healthBar.y + 40, FlxG.width, "", 20);
-		scoreTxt.setFormat(Paths.font("vcr.ttf"), 20, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		// A7: 文本画布 1280→760 并用 OUTLINE_FAST —— 每次重绘从"整宽 9 遍光栅化"降到"约 4 遍小画布"
+		scoreTxt = new FlxText(0, healthBar.y + 40, 760, "", 20);
+		scoreTxt.setFormat(Paths.font("vcr.ttf"), 20, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE_FAST, FlxColor.BLACK);
 		scoreTxt.scrollFactor.set();
+		scoreTxt.screenCenter(X);
 		scoreTxt.borderSize = 1.25;
 		scoreTxt.visible = !ClientPrefs.data.hideHud;
 		updateScore(false);
@@ -1235,6 +1237,16 @@ class PlayState extends MusicBeatState
 	// `updateScore = function(miss:Bool = false) { ... }
 	// its like if it was a variable but its just a function!
 	// cool right? -Crow
+
+	// ===== A7: 评分文本限频渲染 =====
+	// 每次命中都直接写 scoreTxt.text 会触发 FlxText 全画布重光栅化+纹理上传(约 4 遍描边)。
+	// 这里把"拼字符串"留在命中时, "写文本"挪到 update 里限频(80ms), 连打段不再逐 hit 重绘。
+	var scoreTxtPending:String = '';
+	var scoreTxtDirty:Bool = false;
+	var scoreTxtCooldown:Float = 0;
+	// B9: 时间文本按秒缓存 —— 秒数没变就不重拼 formatTime
+	var lastTimeSec:Int = -9999;
+
 	public dynamic function updateScore(miss:Bool = false)
 	{
 		var ret:Dynamic = callOnScripts('preUpdateScore', [miss], true);
@@ -1253,12 +1265,25 @@ class PlayState extends MusicBeatState
 		+ ' | 评价: ${str}';
 		// "tempScore" variable is used to prevent another memory leak, just in case
 		// "\n" here prevents the text from being cut off by beat zooms
-		scoreTxt.text = '${tempScore}\n';
+		// A7: 先挂起, 由 update() 限频落盘(见 flushScoreText)
+		scoreTxtPending = '${tempScore}\n';
+		scoreTxtDirty = true;
 
 		if (!miss && !cpuControlled)
 			doScoreBop();
 
 		callOnScripts('onUpdateScore', [miss]);
+	}
+
+	// A7: 由 update() 每帧调用, 限频把挂起的评分文本写出去
+	function flushScoreText(elapsed:Float):Void
+	{
+		if (!scoreTxtDirty) return;
+		scoreTxtCooldown -= elapsed;
+		if (scoreTxtCooldown > 0) return;
+		scoreTxtCooldown = 0.08;
+		scoreTxtDirty = false;
+		scoreTxt.text = scoreTxtPending;
 	}
 
 	public dynamic function fullComboFunction()
@@ -1882,6 +1907,8 @@ class PlayState extends MusicBeatState
 			&& Conductor.songPosition >= stickyExpireAt)
 			stickyStartFade();
 
+		flushScoreText(elapsed);	// A7: 评分文本限频落盘
+
 		setOnScripts('curDecStep', curDecStep);
 		setOnScripts('curDecBeat', curDecBeat);
 
@@ -1950,8 +1977,12 @@ class PlayState extends MusicBeatState
 			var secondsTotal:Int = Math.floor(songCalc / 1000);
 			if(secondsTotal < 0) secondsTotal = 0;
 
-			if(ClientPrefs.data.timeBarType != 'Song Name')
+			// B9: 秒数没变就不重拼 formatTime/不写 .text
+			if(ClientPrefs.data.timeBarType != 'Song Name' && secondsTotal != lastTimeSec)
+			{
+				lastTimeSec = secondsTotal;
 				timeTxt.text = FlxStringUtil.formatTime(secondsTotal, false);
+			}
 		}
 
 		if (camZooming)
@@ -1960,9 +1991,12 @@ class PlayState extends MusicBeatState
 			camHUD.zoom = FlxMath.lerp(1, camHUD.zoom, Math.exp(-elapsed * 3.125 * camZoomingDecay * playbackRate));
 		}
 
+		// D4: 纯调试监视, 正式包无 debugger 时无意义
+		#if debug
 		FlxG.watch.addQuick("secShit", curSection);
 		FlxG.watch.addQuick("beatShit", curBeat);
 		FlxG.watch.addQuick("stepShit", curStep);
+		#end
 
 		// RESET = Quick Game Over Screen
 		if (!ClientPrefs.data.noReset && controls.RESET && canReset && !inCutscene && startedCountdown && !endingSong)
@@ -1988,7 +2022,8 @@ class PlayState extends MusicBeatState
 			// 批量生成后按时间排序: sustain 链 piece 的 strumTime 会跨越后续行的本体时间,
 			// 不排序则 spawn 队列头被"未来"的 piece 卡住, 后续行延迟出现(长箭头之间出现断缝)
 			// 对齐原版: 全量生成后也有 unspawnNotes.sort(sortByTime)
-			unspawnNotes.sort(sortByTime);
+			// B1: 只在本帧真的新增了行时才排序 —— 队列顺序只在增删时变化, 没新增时每帧全排是纯浪费
+			if (filled > 0) unspawnNotes.sort(sortByTime);
 		}
 
 		if (unspawnNotes[0] != null)
@@ -2006,7 +2041,7 @@ class PlayState extends MusicBeatState
 				callOnLuas('onSpawnNote', [notes.members.indexOf(dunceNote), dunceNote.noteData, dunceNote.noteType, dunceNote.isSustainNote, dunceNote.strumTime]);
 				callOnHScript('onSpawnNote', [dunceNote]);
 
-				var index:Int = unspawnNotes.indexOf(dunceNote);
+				var index:Int = (unspawnNotes[0] == dunceNote) ? 0 : unspawnNotes.indexOf(dunceNote);
 				unspawnNotes.splice(index, 1);
 			}
 		}
@@ -2022,11 +2057,17 @@ class PlayState extends MusicBeatState
 
 				if(notes.length > 0)
 				{
+					// B3: 手写循环替代 forEachAlive(闭包) —— 每帧省两个闭包分配与回调间接开销
+					// 语义对齐 flixel: 遍历 members 活元素; invalidateNote 在遍历中 remove 的行为与原版一致
+					var noteMembers:Array<Note> = notes.members;
 					if(startedCountdown)
 					{
 						var fakeCrochet:Float = (60 / SONG.bpm) * 1000;
-						notes.forEachAlive(function(daNote:Note)
+						for (i in 0...noteMembers.length)
 						{
+							var daNote:Note = noteMembers[i];
+							if(daNote == null || !daNote.alive) continue;
+
 							var strumGroup:FlxTypedGroup<StrumNote> = playerStrums;
 							if(!daNote.mustPress) strumGroup = opponentStrums;
 
@@ -2052,15 +2093,17 @@ class PlayState extends MusicBeatState
 								daNote.active = daNote.visible = false;
 								invalidateNote(daNote);
 							}
-						});
+						}
 					}
 					else
 					{
-						notes.forEachAlive(function(daNote:Note)
+						for (i in 0...noteMembers.length)
 						{
+							var daNote:Note = noteMembers[i];
+							if(daNote == null || !daNote.alive) continue;
 							daNote.canBeHit = false;
 							daNote.wasGoodHit = false;
-						});
+						}
 					}
 				}
 			}
@@ -2151,43 +2194,43 @@ class PlayState extends MusicBeatState
 			}
 		}
 
-		var sprs:Array<FlxSprite> = [iconP1, iconP2];
-		for (i in 0...2)
+		// B5: 两次直接调用替代每帧 [iconP1, iconP2] 数组分配
+		applyIconSquash(iconP1, 0, elapsed, iconBaseY1, iconBaseH1);
+		applyIconSquash(iconP2, 1, elapsed, iconBaseY2, iconBaseH2);
+	}
+
+	// 单个血条图标的挤压/静止偏移计算(从 updateIconsSquashFx 的循环体拆出)
+	function applyIconSquash(spr:FlxSprite, i:Int, elapsed:Float, baseY:Float, baseH:Float):Void
+	{
+		// 静止偏移缓动(低血下坠/满血上浮), 两组各自独立
+		iconCurRestOffset[i] += (iconRestOffset[i] - iconCurRestOffset[i]) * Math.min(1, 6 * elapsed);
+
+		if (!iconIsSquashing[i])
 		{
-			var spr:FlxSprite = sprs[i];
-			var baseY:Float = (i == 0) ? iconBaseY1 : iconBaseY2;
-			var baseH:Float = (i == 0) ? iconBaseH1 : iconBaseH2;
+			spr.scale.set(1, 1); spr.angle = 0;
+			spr.y = baseY + iconCurRestOffset[i];
+			return;
+		}
 
-			// 静止偏移缓动(低血下坠/满血上浮), 两组各自独立
-			iconCurRestOffset[i] += (iconRestOffset[i] - iconCurRestOffset[i]) * Math.min(1, 6 * elapsed);
+		iconSquashT[i] += elapsed;
+		var env:Float = Math.exp(-iconSquashDamp[i] * iconSquashT[i]);
+		var osc:Float = Math.cos(iconSquashFreq[i] * iconSquashT[i]);
+		var mult:Float = 1 - iconSquashAmp[i] * env * osc;
 
-			if (!iconIsSquashing[i])
-			{
-				spr.scale.set(1, 1); spr.angle = 0;
-				spr.y = baseY + iconCurRestOffset[i];
-				continue;
-			}
+		var off:Float = baseH * (1 - mult) * 0.5;
+		var swing:Float = (iconSwingAmp[i] > 0) ? Math.sin(iconSquashT[i] * 80) * iconSwingAmp[i] * env : 0;
+		var rot:Float = (iconRotAmp[i] > 0) ? Math.sin(iconSquashT[i] * iconRotFreq[i]) * iconRotAmp[i] * env : 0;
 
-			iconSquashT[i] += elapsed;
-			var env:Float = Math.exp(-iconSquashDamp[i] * iconSquashT[i]);
-			var osc:Float = Math.cos(iconSquashFreq[i] * iconSquashT[i]);
-			var mult:Float = 1 - iconSquashAmp[i] * env * osc;
+		spr.scale.set(1, mult);
+		spr.updateHitbox();
+		spr.x += swing;
+		spr.y = baseY + off + iconCurRestOffset[i];
+		spr.angle = (i == 0) ? rot : -rot;	// 角度对称
 
-			var off:Float = baseH * (1 - mult) * 0.5;
-			var swing:Float = (iconSwingAmp[i] > 0) ? Math.sin(iconSquashT[i] * 80) * iconSwingAmp[i] * env : 0;
-			var rot:Float = (iconRotAmp[i] > 0) ? Math.sin(iconSquashT[i] * iconRotFreq[i]) * iconRotAmp[i] * env : 0;
-
-			spr.scale.set(1, mult);
-			spr.updateHitbox();
-			spr.x += swing;
-			spr.y = baseY + off + iconCurRestOffset[i];
-			spr.angle = (i == 0) ? rot : -rot;	// 角度对称
-
-			if (env < 0.01)
-			{
-				iconIsSquashing[i] = false;
-				spr.scale.set(1, 1); spr.angle = 0;
-			}
+		if (env < 0.01)
+		{
+			iconIsSquashing[i] = false;
+			spr.scale.set(1, 1); spr.angle = 0;
 		}
 	}
 
@@ -3144,19 +3187,34 @@ class PlayState extends MusicBeatState
 		}
 
 		// obtain notes that the player can hit
-		var plrInputNotes:Array<Note> = notes.members.filter(function(n:Note):Bool {
-			var canHit:Bool = !strumsBlocked[n.noteData] && n.canBeHit && n.mustPress && !n.tooLate && !n.wasGoodHit && !n.blockHit;
-			return n != null && canHit && !n.isSustainNote && n.noteData == key;
-		});
-		plrInputNotes.sort(sortHitNotes);
+		// B8: 单遍扫描维护最优两枚(替代 filter 造数组+闭包 再 sort), 排序规则与 sortHitNotes 一致
+		var best:Note = null;
+		var second:Note = null;
+		var noteMembers:Array<Note> = notes.members;
+		for (i in 0...noteMembers.length)
+		{
+			var n:Note = noteMembers[i];
+			if (n == null || n.isSustainNote || n.noteData != key) continue;
+			if (strumsBlocked[n.noteData] || !n.canBeHit || !n.mustPress || n.tooLate || n.wasGoodHit || n.blockHit) continue;
+
+			if (best == null || notePrecedes(n, best))
+			{
+				second = best;
+				best = n;
+			}
+			else if (second == null || notePrecedes(n, second))
+			{
+				second = n;
+			}
+		}
 
 		var shouldMiss:Bool = !ClientPrefs.data.ghostTapping;
 
-		if (plrInputNotes.length != 0) { // slightly faster than doing `> 0` lol
-			var funnyNote:Note = plrInputNotes[0]; // front note
+		if (best != null) {
+			var funnyNote:Note = best; // front note
 
-			if (plrInputNotes.length > 1) {
-				var doubleNote:Note = plrInputNotes[1];
+			if (second != null) {
+				var doubleNote:Note = second;
 
 				if (doubleNote.noteData == funnyNote.noteData) {
 					// if the note has a 0ms distance (is on top of the current note), kill it
@@ -3203,6 +3261,13 @@ class PlayState extends MusicBeatState
 		return FlxSort.byValues(FlxSort.ASCENDING, a.strumTime, b.strumTime);
 	}
 
+	// B8: 与 sortHitNotes 同规则的"a 是否应排在 b 前"(非 lowPriority 优先, 再按 strumTime 升序)
+	static function notePrecedes(a:Note, b:Note):Bool
+	{
+		if (a.lowPriority != b.lowPriority) return !a.lowPriority;
+		return a.strumTime < b.strumTime;
+	}
+
 	private function onKeyRelease(event:KeyboardEvent):Void
 	{
 		var eventKey:FlxKey = event.keyCode;
@@ -3242,40 +3307,53 @@ class PlayState extends MusicBeatState
 	}
 
 	// Hold notes
+	// B4: 定长状态数组(类字段复用, 免每帧 3 个数组分配) + 布尔聚合替代 contains(true)
+	var holdStates:Array<Bool> = [false, false, false, false];
+	var pressStates:Array<Bool> = [false, false, false, false];
+	var releaseStates:Array<Bool> = [false, false, false, false];
+
 	private function keysCheck():Void
 	{
 		// HOLDING
-		var holdArray:Array<Bool> = [];
-		var pressArray:Array<Bool> = [];
-		var releaseArray:Array<Bool> = [];
-		for (key in keysArray)
+		var anyHeld:Bool = false;
+		var anyPressed:Bool = false;
+		var anyReleased:Bool = false;
+		for (i in 0...keysArray.length)
 		{
-			holdArray.push(controls.pressed(key));
+			var key:String = keysArray[i];
+			holdStates[i] = controls.pressed(key);
+			if(holdStates[i]) anyHeld = true;
 			if(controls.controllerMode)
 			{
-				pressArray.push(controls.justPressed(key));
-				releaseArray.push(controls.justReleased(key));
+				pressStates[i] = controls.justPressed(key);
+				releaseStates[i] = controls.justReleased(key);
+				if(pressStates[i]) anyPressed = true;
+				if(releaseStates[i]) anyReleased = true;
 			}
 		}
 
 		// TO DO: Find a better way to handle controller inputs, this should work for now
-		if(controls.controllerMode && pressArray.contains(true))
-			for (i in 0...pressArray.length)
-				if(pressArray[i] && strumsBlocked[i] != true)
+		if(controls.controllerMode && anyPressed)
+			for (i in 0...keysArray.length)
+				if(pressStates[i] && strumsBlocked[i] != true)
 					keyPressed(i);
 
 		if (startedCountdown && !inCutscene && !boyfriend.stunned && generatedMusic)
 		{
 			if (notes.length > 0) {
-				for (n in notes) { // I can't do a filter here, that's kinda awesome
-					var canHit:Bool = (n != null && !strumsBlocked[n.noteData] && n.canBeHit
+				// 索引遍历替代迭代器(免每次迭代器对象分配), 空元素行为与原版一致
+				var noteMembers:Array<Note> = notes.members;
+				for (j in 0...noteMembers.length) {
+					var n:Note = noteMembers[j];
+					if (n == null) continue;
+					var canHit:Bool = (!strumsBlocked[n.noteData] && n.canBeHit
 						&& n.mustPress && !n.tooLate && !n.wasGoodHit && !n.blockHit);
 
 					if (guitarHeroSustains)
 						canHit = canHit && n.parent != null && n.parent.wasGoodHit;
 
 					if (canHit && n.isSustainNote) {
-						var released:Bool = !holdArray[n.noteData];
+						var released:Bool = !holdStates[n.noteData];
 
 						if (!released)
 							goodNoteHit(n);
@@ -3283,7 +3361,7 @@ class PlayState extends MusicBeatState
 				}
 			}
 
-			if (!holdArray.contains(true) || endingSong)
+			if (!anyHeld || endingSong)
 				playerDance();
 
 			#if ACHIEVEMENTS_ALLOWED
@@ -3292,9 +3370,9 @@ class PlayState extends MusicBeatState
 		}
 
 		// TO DO: Find a better way to handle controller inputs, this should work for now
-		if((controls.controllerMode || strumsBlocked.contains(true)) && releaseArray.contains(true))
-			for (i in 0...releaseArray.length)
-				if(releaseArray[i] || strumsBlocked[i] == true)
+		if((controls.controllerMode || strumsBlocked.contains(true)) && anyReleased)
+			for (i in 0...keysArray.length)
+				if(releaseStates[i] || strumsBlocked[i] == true)
 					keyReleased(i);
 	}
 
@@ -3822,8 +3900,10 @@ class PlayState extends MusicBeatState
 
 	public function callOnScripts(funcToCall:String, args:Array<Dynamic> = null, ignoreStops = false, exclusions:Array<String> = null, excludeValues:Array<Dynamic> = null):Dynamic {
 		var returnVal:Dynamic = LuaUtils.Function_Continue;
+		// B2: 无脚本时零开销短路(每帧 2 次以上的调用原本仍会分配 3 个默认数组)
+		if (hasNoScripts()) return returnVal;
 		if(args == null) args = [];
-		if(exclusions == null) exclusions = [];
+		if(exclusions == null) exclusions = EMPTY_EXCLUSIONS;
 		if(excludeValues == null) excludeValues = [LuaUtils.Function_Continue];
 
 		var result:Dynamic = callOnLuas(funcToCall, args, ignoreStops, exclusions, excludeValues);
@@ -3918,8 +3998,31 @@ class PlayState extends MusicBeatState
 		return returnVal;
 	}
 
+	// B2: 共享空排除表(exclusions 在全部调用链里只读, 不含 mutate), 免每帧反复 new []
+	static var EMPTY_EXCLUSIONS:Array<String> = [];
+
+	// B2: 是否无任何脚本(条件编译兼容只开 LUA/HSCRIPT 其一的配置)
+	function hasNoScripts():Bool
+	{
+		#if LUA_ALLOWED
+			#if HSCRIPT_ALLOWED
+			return luaArray.length == 0 && hscriptArray.length == 0;
+			#else
+			return luaArray.length == 0;
+			#end
+		#else
+			#if HSCRIPT_ALLOWED
+			return hscriptArray.length == 0;
+			#else
+			return true;
+			#end
+		#end
+	}
+
 	public function setOnScripts(variable:String, arg:Dynamic, exclusions:Array<String> = null) {
-		if(exclusions == null) exclusions = [];
+		// B2: 无脚本时零开销短路(每帧 5 次调用, 无脚本时原本仍各分配一次数组)
+		if (hasNoScripts()) return;
+		if(exclusions == null) exclusions = EMPTY_EXCLUSIONS;
 		setOnLuas(variable, arg, exclusions);
 		setOnHScript(variable, arg, exclusions);
 	}

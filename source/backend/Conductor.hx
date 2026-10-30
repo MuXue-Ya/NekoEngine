@@ -40,36 +40,42 @@ class Conductor
 		return lastChange.stepCrochet*4;
 	}
 
-	public static function getBPMFromSeconds(time:Float){
-		var lastChange:BPMChangeEvent = {
-			stepTime: 0,
-			songTime: 0,
-			bpm: bpm,
-			stepCrochet: stepCrochet
-		}
-		for (i in 0...Conductor.bpmChangeMap.length)
-		{
-			if (time >= Conductor.bpmChangeMap[i].songTime)
-				lastChange = Conductor.bpmChangeMap[i];
-		}
+	// B6: 复用兜底对象 —— 旧写法每次调用都 new 一个匿名结构(每帧调用, 纯 GC 压力)。
+	// 约定: 返回值按只读使用(引擎内全部调用点均为只读)。
+	static var _defaultChange:BPMChangeEvent = { stepTime: 0, songTime: 0, bpm: 100, stepCrochet: 0 };
 
-		return lastChange;
+	public static function getBPMFromSeconds(time:Float){
+		var map:Array<BPMChangeEvent> = Conductor.bpmChangeMap;
+		var lastChange:BPMChangeEvent = null;
+		for (i in 0...map.length)
+		{
+			if (time >= map[i].songTime)
+				lastChange = map[i];
+		}
+		if (lastChange != null) return lastChange;
+
+		_defaultChange.stepTime = 0;
+		_defaultChange.songTime = 0;
+		_defaultChange.bpm = bpm;
+		_defaultChange.stepCrochet = stepCrochet;
+		return _defaultChange;
 	}
 
 	public static function getBPMFromStep(step:Float){
-		var lastChange:BPMChangeEvent = {
-			stepTime: 0,
-			songTime: 0,
-			bpm: bpm,
-			stepCrochet: stepCrochet
-		}
-		for (i in 0...Conductor.bpmChangeMap.length)
+		var map:Array<BPMChangeEvent> = Conductor.bpmChangeMap;
+		var lastChange:BPMChangeEvent = null;
+		for (i in 0...map.length)
 		{
-			if (Conductor.bpmChangeMap[i].stepTime<=step)
-				lastChange = Conductor.bpmChangeMap[i];
+			if (map[i].stepTime<=step)
+				lastChange = map[i];
 		}
+		if (lastChange != null) return lastChange;
 
-		return lastChange;
+		_defaultChange.stepTime = 0;
+		_defaultChange.songTime = 0;
+		_defaultChange.bpm = bpm;
+		_defaultChange.stepCrochet = stepCrochet;
+		return _defaultChange;
 	}
 
 	public static function beatToSeconds(beat:Float): Float{

@@ -49,6 +49,8 @@ class PerfProbe
 	static var filePath:String = null;
 	static var summariesSinceFlush:Int = 0;
 	static var lastBreakMs:Float = -100000;
+	// D1: 内存分解(贴图缓存遍历+/proc 读取)开关, 默认关避免周期性尖帧
+	public static var memBreakdown:Bool = false;
 
 	// 段级聚合(状态切换时输出小结) + 全场累计
 	static var segStartMs:Float = 0;
@@ -227,7 +229,9 @@ class PerfProbe
 			if (summariesSinceFlush >= 2) flush();	// 约2秒落盘一次
 
 			// 内存分解: 每10秒定位堆里的大头(普通贴图/ASTC/资源跟踪量)
-			if (now - lastBreakMs >= 10000) { lastBreakMs = now; pushMemBreakdown(now); }
+			// D1: 默认关闭 —— 该函数每 10s 遍历整个贴图缓存+读 /proc(1~5ms I/O), 是周期性尖帧的可疑来源;
+			//     需要内存归因时把 memBreakdown 置 true(或挂到调试开关)
+			if (memBreakdown && now - lastBreakMs >= 10000) { lastBreakMs = now; pushMemBreakdown(now); }
 		}
 	}
 
