@@ -55,7 +55,7 @@ class PerfProbe
 	static var summariesSinceFlush:Int = 0;
 	static var lastBreakMs:Float = -100000;
 	// D1: 内存分解(贴图缓存遍历+/proc 读取)开关, 默认关避免周期性尖帧
-	public static var memBreakdown:Bool = false;
+	public static var memBreakdown:Bool = true;	// 临时: 内存体检开启, 排查完改回 false
 	// 供 FPS 卡片显示的上一秒平均更新/绘制耗时(ms)
 	public static var lastUpdAvg:Float = 0;
 	public static var lastDrawAvg:Float = 0;
@@ -495,6 +495,7 @@ class PerfProbe
 		#if (cpp && mobile)
 		var texCnt:Int = 0;
 		var texMB:Float = 0;
+		var bigTex:Array<{n:String, mb:Float}> = [];
 		var astcCnt:Int = 0;
 		var gpuCnt:Int = 0;
 		@:privateAccess
@@ -507,8 +508,22 @@ class PerfProbe
 			#end
 			if (!g.bitmap.readable) { gpuCnt++; continue; }	// GPU化纹理: 数据在GL, 零堆占用
 			texCnt++;
-			texMB += g.bitmap.width * g.bitmap.height * 4 / 1048576;
+			var oneMB:Float = g.bitmap.width * g.bitmap.height * 4 / 1048576;
+			texMB += oneMB;
+			// 堆里最大的 5 张图: "占内存怎么压" 的直接依据
+			if (oneMB >= 4)
+			{
+				var shortName:String = key;
+				var slash:Int = shortName.lastIndexOf('/');
+				if (slash >= 0) shortName = shortName.substr(slash + 1);
+				bigTex.push({n: shortName, mb: oneMB});
+			}
 		}
+		bigTex.sort(function(a, b) return (a.mb > b.mb) ? -1 : ((a.mb < b.mb) ? 1 : 0));
+		var bigLine:String = '';
+		var bigN:Int = bigTex.length < 5 ? bigTex.length : 5;
+		for (i in 0...bigN) bigLine += ' ' + bigTex[i].n + '=' + Math.round(bigTex[i].mb) + 'MB';
+		bigTex.resize(0);
 		var rssMB:Float = readRssMB();
 		// 音频 PCM 驻留估算: lime Android 解码为 44.1kHz/16bit/立体声 = 176.4 B/ms = 0.00016822 MB/ms
 		var audioCnt:Int = 0;
@@ -535,7 +550,17 @@ class PerfProbe
 			+ ' 跟踪音=' + Lambda.count(Paths.currentTrackedSounds)
 			+ ' 音频=' + audioCnt + '轨/~' + Math.round(audioMB) + 'MB'
 			+ ' 曲=' + (states.PlayState.SONG != null ? states.PlayState.SONG.song : '-')
-			+ ' rss=' + Math.round(rssMB) + 'MB');
+			+ ' rss=' + Math.round(rssMB) + 'MB'
+			+ ' 堆外=' + Math.round(rssMB - cpp.vm.Gc.memInfo64(cpp.vm.Gc.MEM_INFO_RESERVED) / 1048576.0) + 'MB'
+			+ ' 大图:' + (bigLine.length > 0 ? bigLine : ' 无'));
+		var ps:states.PlayState = states.PlayState.instance;
+		if (ps != null)
+		{
+			@:privateAccess
+			push('    常驻 音符=' + ps.notes.members.length + ' 未生成=' + ps.unspawnNotes.length
+				+ ' 事件=' + ps.eventNotes.length
+				+ ' 角色=' + (ps.boyfriend != null ? ps.boyfriend.curCharacter : '-') + '/' + (ps.dad != null ? ps.dad.curCharacter : '-'));
+		}
 		#end
 	}
 
