@@ -68,6 +68,7 @@ class Paths
 
 		pathCache.clear();
 		fileExistsCache.clear();
+		atlasFrameCache.clear();	// M1: 帧集合跟着图走, 图被销毁后缓存必须一起失效
 
 		// 注: 不再强制 System.gc() —— 本机实测单次 GC 0.4~1.1s(见 Main.hx 注释),
 		// 每次切界面都白送一次长暂停; 改由 setMinimumFreeSpace(48MB) 按需自然触发
@@ -81,10 +82,10 @@ class Paths
 	// ④ 至少 5s 没被请求 ⑤ 显存超过 texBudgetMB 才动手, 按"最久没用"顺序释放到预算以内 ⑥ 同一张图 90s 内不重复回收(防抖动)
 	public static var texLastUseMs:Map<String, Float> = new Map();
 	public static var texEvictedMs:Map<String, Float> = new Map();
-	public static var texMinMB:Float = 4;
+	public static var texMinMB:Float = 64;		// M2: 4→64 —— 音符图集(30MB 级)会被 mod 来回换, 回收=下次重新解码(实测害了 107ms)
 	public static var texIdleSec:Float = 5;				// 至少闲置这么久才允许回收
 	public static var texBudgetMB:Float = 800;			// 显存预算(超过就按 LRU 释放)
-	public static var texCooldownSec:Float = 90;		// 同一张图两次回收的最小间隔(防抖动)
+	public static var texCooldownSec:Float = 600;	// M2: 90→600 同一张图两次回收的最小间隔(防 mod 换皮肤造成的抖动)
 	public static var texSweptMB:Float = 0;				// 累计回收(仅日志)
 	public static var texSweepEnabled:Bool = true;
 	static var texTickMs:Float = -100000;
@@ -148,6 +149,7 @@ class Paths
 			OpenFlAssets.cache.removeBitmapData(c.k);
 			currentTrackedAssets.remove(c.k);
 			texLastUseMs.remove(c.k);
+			atlasFrameCache.remove(c.k);	// M1: 这张图的帧集合也一并失效
 			texEvictedMs.set(c.k, nowMs);
 			g.persist = false;
 			g.destroyOnNoUse = true;
@@ -199,6 +201,7 @@ class Paths
 
 		pathCache.clear();
 		fileExistsCache.clear();
+		atlasFrameCache.clear();	// M1: 同上
 
 		#if !html5 openfl.Assets.cache.clear("songs"); #end
 	}
@@ -613,18 +616,38 @@ class Paths
 		return exists;
 	}
 
+	// ===== 图集帧缓存(阶段 M): 同一张图的 FlxAtlasFrames 只解析一次 =====
+	// 依据(第六轮 perf_log, 曲 Infraction): mod 换音符皮肤时会把 30 多个 Note / 8 个 Strum 一起 loadGraphic,
+	// 而老实现每次都 File.getContent(xml) + FlxAtlasFrames.fromSparrow 重新解析 + 重建整组 FlxFrame,
+	// 于是出现 4 次 550~666ms 的冻结(日志里 upd=666/560/625/550)。
+	// 帧集合本身不可变(parent 指向 FlxGraphic), 因此可安全复用; 图被回收/重建后 parent 变化 → 自动重建。
+	static var atlasFrameCache:Map<String, FlxAtlasFrames> = new Map();
+
+	static function atlasBuildLog(key:String, t0:Float):Void
+	{
+		#if mobile
+		var cost:Float = haxe.Timer.stamp() * 1000 - t0;
+		if (cost >= 30) backend.PerfProbe.log('[图集] ' + key + ' 解析=' + Math.round(cost) + 'ms');
+		#end
+	}
+
 	static public function getAtlas(key:String, ?library:String = null, ?allowGPU:Bool = true):FlxAtlasFrames
 	{
 		var useMod = false;
 		var imageLoaded:FlxGraphic = image(key, library, allowGPU);
 
+		var hit:FlxAtlasFrames = atlasFrameCache.get(key);
+		if (hit != null && hit.parent == imageLoaded) return hit;
+
+		var t0:Float = haxe.Timer.stamp() * 1000;
+		var built:FlxAtlasFrames = null;
 		var myXml:Dynamic = getPath('images/$key.xml', TEXT, library, true);
 		if(OpenFlAssets.exists(myXml) #if MODS_ALLOWED || (FileSystem.exists(myXml) && (useMod = true)) #end )
 		{
 			#if MODS_ALLOWED
-			return FlxAtlasFrames.fromSparrow(imageLoaded, (useMod ? File.getContent(myXml) : myXml));
+			built = FlxAtlasFrames.fromSparrow(imageLoaded, (useMod ? File.getContent(myXml) : myXml));
 			#else
-			return FlxAtlasFrames.fromSparrow(imageLoaded, myXml);
+			built = FlxAtlasFrames.fromSparrow(imageLoaded, myXml);
 			#end
 		}
 		else
@@ -633,43 +656,62 @@ class Paths
 			if(OpenFlAssets.exists(myJson) #if MODS_ALLOWED || (FileSystem.exists(myJson) && (useMod = true)) #end )
 			{
 				#if MODS_ALLOWED
-				return FlxAtlasFrames.fromTexturePackerJson(imageLoaded, (useMod ? File.getContent(myJson) : myJson));
+				built = FlxAtlasFrames.fromTexturePackerJson(imageLoaded, (useMod ? File.getContent(myJson) : myJson));
 				#else
-				return FlxAtlasFrames.fromTexturePackerJson(imageLoaded, myJson);
+				built = FlxAtlasFrames.fromTexturePackerJson(imageLoaded, myJson);
 				#end
 			}
 		}
-		return getPackerAtlas(key, library);
+		if (built == null) return getPackerAtlas(key, library);	// 没 xml/json: 回退到 packer(那条路径自己会缓存)
+		atlasFrameCache.set(key, built);
+		atlasBuildLog(key, t0);
+		return built;
 	}
 
-	inline static public function getSparrowAtlas(key:String, ?library:String = null, ?allowGPU:Bool = true):FlxAtlasFrames
+	static public function getSparrowAtlas(key:String, ?library:String = null, ?allowGPU:Bool = true):FlxAtlasFrames
 	{
 		var imageLoaded:FlxGraphic = image(key, library, allowGPU);
+
+		var hit:FlxAtlasFrames = atlasFrameCache.get(key);
+		if (hit != null && hit.parent == imageLoaded) return hit;	// M1: 换皮肤/重复加载时不再重复解析 XML
+
+		var t0:Float = haxe.Timer.stamp() * 1000;
 		#if MODS_ALLOWED
 		var xmlExists:Bool = false;
 
 		var xml:String = modsXml(key);
 		if(FileSystem.exists(xml)) xmlExists = true;
 
-		return FlxAtlasFrames.fromSparrow(imageLoaded, (xmlExists ? File.getContent(xml) : getPath('images/$key.xml', library)));
+		var built:FlxAtlasFrames = FlxAtlasFrames.fromSparrow(imageLoaded, (xmlExists ? File.getContent(xml) : getPath('images/$key.xml', library)));
 		#else
-		return FlxAtlasFrames.fromSparrow(imageLoaded, getPath('images/$key.xml', library));
+		var built:FlxAtlasFrames = FlxAtlasFrames.fromSparrow(imageLoaded, getPath('images/$key.xml', library));
 		#end
+		atlasFrameCache.set(key, built);
+		atlasBuildLog(key, t0);
+		return built;
 	}
 
-	inline static public function getPackerAtlas(key:String, ?library:String = null, ?allowGPU:Bool = true):FlxAtlasFrames
+	static public function getPackerAtlas(key:String, ?library:String = null, ?allowGPU:Bool = true):FlxAtlasFrames
 	{
 		var imageLoaded:FlxGraphic = image(key, library, allowGPU);
+
+		var hit:FlxAtlasFrames = atlasFrameCache.get(key);
+		if (hit != null && hit.parent == imageLoaded) return hit;	// M1: 同上
+
+		var t0:Float = haxe.Timer.stamp() * 1000;
 		#if MODS_ALLOWED
 		var txtExists:Bool = false;
 		
 		var txt:String = modsTxt(key);
 		if(FileSystem.exists(txt)) txtExists = true;
 
-		return FlxAtlasFrames.fromSpriteSheetPacker(imageLoaded, (txtExists ? File.getContent(txt) : getPath('images/$key.txt', library)));
+		var built:FlxAtlasFrames = FlxAtlasFrames.fromSpriteSheetPacker(imageLoaded, (txtExists ? File.getContent(txt) : getPath('images/$key.txt', library)));
 		#else
-		return FlxAtlasFrames.fromSpriteSheetPacker(imageLoaded, getPath('images/$key.txt', library));
+		var built:FlxAtlasFrames = FlxAtlasFrames.fromSpriteSheetPacker(imageLoaded, getPath('images/$key.txt', library));
 		#end
+		atlasFrameCache.set(key, built);
+		atlasBuildLog(key, t0);
+		return built;
 	}
 
 	inline static public function getAsepriteAtlas(key:String, ?library:String = null, ?allowGPU:Bool = true):FlxAtlasFrames
