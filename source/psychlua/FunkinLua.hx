@@ -63,6 +63,11 @@ class FunkinLua {
 	public function new(scriptName:String) {
 		lua = LuaL.newstate();
 		LuaL.openlibs(lua);
+		// M3 脚本层: Lua 增量 GC 默认 stepmul=200 / pause=200, 单步工作量偏大 ——
+		// 打歌日志里出现过单帧 脚本=峰50ms 的尖帧(与一次 堆-5MB 的小回收同帧), 也就是一步 GC 落进了一帧。
+		// 调细: stepmul 200→100(每步工作量减半), pause 200→150(循环更早开始, 单次更小), 用略高的 CPU 换更短的停顿。
+		@:privateAccess var _gcStep:Int = Lua.gc(lua, 7, 100);	// LUA_GCSETSTEPMUL
+		@:privateAccess var _gcPause:Int = Lua.gc(lua, 6, 150);	// LUA_GCSETPAUSE
 
 		//trace('Lua version: ' + Lua.version());
 		//trace("LuaJIT version: " + Lua.versionJIT());

@@ -4113,7 +4113,15 @@ class PlayState extends MusicBeatState
 			if(exclusions.contains(script.scriptName))
 				continue;
 
+			#if mobile
+			var __luT0:Float = haxe.Timer.stamp() * 1000;
+			#end
 			var myValue:Dynamic = script.call(funcToCall, args);
+			#if mobile
+			var __luMs:Float = haxe.Timer.stamp() * 1000 - __luT0;
+			if (__luMs >= 20)	// M3: 点名"哪个脚本的哪个回调"吃了这一帧(≥20ms 才记)
+				backend.PerfProbe.log('[' + Math.round(__luMs) + 'ms 脚本] ' + script.scriptName + ' :: ' + funcToCall);
+			#end
 			if((myValue == LuaUtils.Function_StopLua || myValue == LuaUtils.Function_StopAll) && !excludeValues.contains(myValue) && !ignoreStops)
 			{
 				returnVal = myValue;
