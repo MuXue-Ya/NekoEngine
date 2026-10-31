@@ -137,6 +137,8 @@ class Paths
 		var freed:Int = 0;
 		var freedMB:Float = 0;
 		var total:Float = gpuTotalMB;
+		// FlxG.bitmap._cache 是私有字段, 每个访问点都要带 @:privateAccess(与本文件其余两处一致)
+		@:privateAccess
 		for (c in cands)
 		{
 			if (total <= texBudgetMB || freed >= 8) break;
