@@ -1953,7 +1953,13 @@ class PlayState extends MusicBeatState
 		else FlxG.camera.followLerp = 0;
 		// B: 复用参数数组, 免每帧 [elapsed] 小数组分配
 		scriptArgs[0] = elapsed;
+		#if mobile
+		var __updScr0:Float = haxe.Timer.stamp() * 1000;
+		#end
 		callOnScripts('onUpdate', scriptArgs);
+		#if mobile
+		backend.PerfProbe.addScriptMs(haxe.Timer.stamp() * 1000 - __updScr0);	// D2: 脚本回调耗时归因
+		#end
 
 		super.update(elapsed);
 
@@ -2157,6 +2163,9 @@ class PlayState extends MusicBeatState
 
 				if(notes.length > 0)
 				{
+					#if mobile
+					var __noteT0:Float = haxe.Timer.stamp() * 1000;	// D2: 音符循环耗时单独计时
+					#end
 					// B3: 手写循环替代 forEachAlive(闭包) —— 每帧省两个闭包分配与回调间接开销
 					// 语义对齐 flixel: 遍历 members 活元素; invalidateNote 在遍历中 remove 的行为与原版一致
 					var noteMembers:Array<Note> = notes.members;
@@ -2205,6 +2214,9 @@ class PlayState extends MusicBeatState
 							daNote.wasGoodHit = false;
 						}
 					}
+					#if mobile
+					backend.PerfProbe.addNoteMs(haxe.Timer.stamp() * 1000 - __noteT0);
+					#end
 				}
 			}
 			checkEventNote();
@@ -2240,7 +2252,13 @@ class PlayState extends MusicBeatState
 			setOnScripts('botPlay', cpuControlled);
 		}
 		scriptArgs[0] = elapsed;
+		#if mobile
+		var __postScr0:Float = haxe.Timer.stamp() * 1000;
+		#end
 		callOnScripts('onUpdatePost', scriptArgs);
+		#if mobile
+		backend.PerfProbe.addScriptMs(haxe.Timer.stamp() * 1000 - __postScr0);	// D2: 脚本回调耗时归因
+		#end
 	}
 
 	// Health icon updaters
@@ -2498,9 +2516,10 @@ class PlayState extends MusicBeatState
 	}
 
 	public function triggerEvent(eventName:String, value1:String, value2:String, strumTime:Float) {
-		// C: 事件打点(每首只有个位数到几十个) —— 用于把打歌中的大冻结/尖帧和具体事件对上
+		// C: 事件打点 —— 用于把打歌中的大冻结/尖帧和具体事件对上
+		// D3: 原假设"每首只有个位数到几十个"被曲3 打脸(1.4 万条); 改为 PerfProbe 侧限流+按秒聚合
 		#if mobile
-		backend.PerfProbe.log('[事件] ' + eventName + ' | ' + value1 + ' | ' + value2 + ' @' + Math.round(strumTime) + 'ms');
+		backend.PerfProbe.eventMarker(eventName, value1, value2, strumTime);
 		#end
 		var flValue1:Null<Float> = Std.parseFloat(value1);
 		var flValue2:Null<Float> = Std.parseFloat(value2);
@@ -3857,9 +3876,15 @@ class PlayState extends MusicBeatState
 			// (每秒 1 次以上即可闻"卡卡的")。人耳对音画不同步可容忍 ~100ms, 对音频中断零容忍,
 			// 因此只在真正漂移时修, 放宽到 120ms。
 			var syncTime:Float = Math.max(120, 120 * playbackRate);
-			if (Math.abs(FlxG.sound.music.time - timeSub) > syncTime ||
-			(vocals.length > 0 && Math.abs(vocals.time - timeSub) > syncTime) ||
-			(opponentVocals.length > 0 && Math.abs(opponentVocals.time - timeSub) > syncTime))
+			// 曲3 实测歌末: music 归零(=162ms) 而 vocals 仍停在 287260ms → 差值必然巨大 → resyncVocals()
+			// 里的 "vocals.time = songPosition" 会把还在歌尾的人声硬拽回 0(与 I2 的"大跳不修"同一类事故)。
+			// 判据: 单侧偏差 >3s 只可能是 seek/歌末/从头再来, 不是漂移 → 不修。
+			var vocalJump:Float = (vocals.length > 0) ? Math.abs(vocals.time - timeSub) : 0;
+			var oppJump:Float = (opponentVocals.length > 0) ? Math.abs(opponentVocals.time - timeSub) : 0;
+			if (vocalJump < 3000 && oppJump < 3000
+			&& (Math.abs(FlxG.sound.music.time - timeSub) > syncTime ||
+			(vocals.length > 0 && vocalJump > syncTime) ||
+			(opponentVocals.length > 0 && oppJump > syncTime)))
 			{
 				resyncVocals();
 			}

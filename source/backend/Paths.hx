@@ -617,6 +617,10 @@ class Paths
 				logSlowLoad('音频', file, haxe.Timer.stamp() * 1000 - t0);
 				currentTrackedSounds.set(file, cachedModSound);
 			}
+			// 菜单曲常驻: 曲3 实测每首歌末回选曲时都要把 mod 版 freakyMenu 重新全解码一次
+			// (1.4~2.3s, 是整份日志里最大的一次停顿), 因为 clearStoredMemory() 每次进状态都会清掉它。
+			// 这份只解码一次后常驻(约 10~30MB, 在音频库/原生内存, 不进 hxcpp 堆、不参与 GC)。
+			if (key == 'freakyMenu') excludeAsset(file);
 			localTrackedAssets.set(file, true);
 			return cachedModSound;
 		}

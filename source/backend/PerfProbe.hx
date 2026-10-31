@@ -45,6 +45,26 @@ class PerfProbe
 	static var gcSec:Int = 0;
 	static var spikeSec:Int = 0;
 
+	// D2: "待" = 上一帧绘制结束 → 本帧开始的间隔 = present/eglSwapBuffers(GPU)/系统调度等待
+	// 判读: upd+draw 小、待 大 → 卡在渲染侧(重 mod 曲), 再优化 CPU 无用; 反之才是逻辑卡
+	static var lastPostDrawMs:Float = -1;
+	static var waitSum:Float = 0;
+	static var waitMax:Float = 0;
+	// D2: 脚本回调(Lua/HScript onUpdate+onUpdatePost)耗时 —— 曲3 update 8ms 里到底有多少是 mod 脚本
+	static var scriptSum:Float = 0;
+	static var scriptMax:Float = 0;
+	// D2: 音符循环(每帧遍历存活音符)耗时 —— 曲3(7567 音符)update 里的另一半嫌疑
+	static var noteSum:Float = 0;
+	static var noteMax:Float = 0;
+	static var segWaitMs:Float = 0;
+	static var segScriptMs:Float = 0;
+	static var segNoteMs:Float = 0;
+
+	// D3: 事件打点聚合(见 eventMarker)
+	static inline var EVT_LOG_EACH:Int = 8;		// 每个事件名前 N 次逐条记录, 之后只计数
+	static var evtCounts:Map<String, Int> = new Map();
+	static var evtSecCounts:Map<String, Int> = new Map();
+
 	static var lastStateRef:FlxState = null;
 	static var segLabel:String = '';	// 当前段的标签(进入该状态时的短名, 修复段小结 off-by-one)
 	static var startMs:Float = 0;
@@ -152,6 +172,13 @@ class PerfProbe
 		if (lastPreMs > 0)
 		{
 			frameMs = now - lastPreMs;
+			// 待: 上一帧 postDraw 之后的空档(不含脚本/引擎逻辑)
+			if (lastPostDrawMs > 0)
+			{
+				var wms:Float = now - lastPostDrawMs;
+				if (wms > 0 && wms < 5000) { waitSum += wms; if (wms > waitMax) waitMax = wms; }
+			}
+			lastPostDrawMs = -1;
 			// 堆增量: 区分"GC 扫堆卡顿"与"堆扩块卡顿"(实测每 ~4s 一次 +32MB 的尖帧)
 			var heapTag:String = '';
 			#if cpp
@@ -241,10 +268,16 @@ class PerfProbe
 				+ '  fps=' + Math.round(secFrames / sec)
 				+ '  upd=' + r1(updAvg) + 'ms(峰' + r1(updMax) + ')'
 				+ '  draw=' + r1(drawAvg) + 'ms(峰' + r1(drawMax) + ')'
-				+ '  GC=' + gcSec + memLine + allocSplit + allocLine() + driftLine() + judgeLine);
+				+ '  待=' + r1(waitSum / Math.max(1, secFrames)) + 'ms(峰' + r1(waitMax) + ')'
+				+ '  脚本=' + r1(scriptSum / Math.max(1, secFrames)) + 'ms(峰' + r1(scriptMax) + ')'
+				+ '  音符=' + r1(noteSum / Math.max(1, secFrames)) + 'ms(峰' + r1(noteMax) + ')'
+				+ '  GC=' + gcSec + memLine + allocSplit + allocLine() + driftLine() + judgeLine + eventSecLine());
 
 			// 段级累加(清零前)
 			segFrames += secFrames;
+			segWaitMs += waitSum;
+			segScriptMs += scriptSum;
+			segNoteMs += noteSum;
 			#if cpp
 			if (usageMB > segMemPeak) segMemPeak = usageMB;
 			#end
@@ -253,6 +286,7 @@ class PerfProbe
 			segJudgeMiss += judgeMissCount;
 
 			secFrames = 0; updSum = 0; updMax = 0; drawSum = 0; drawMax = 0;
+			waitSum = 0; waitMax = 0; scriptSum = 0; scriptMax = 0; noteSum = 0; noteMax = 0;
 			gcSec = 0; spikeSec = 0;
 			judgeCount = 0; judgeMissCount = 0; judgeSum = 0;
 			for (i in 0...judgeBuckets.length) judgeBuckets[i] = 0;
@@ -285,9 +319,26 @@ class PerfProbe
 		if (gcTotalCnt > 0) line += '  GC=' + gcTotalCnt + '次-' + Math.round(gcTotalMB) + 'MB';
 		if (allocSegSecs > 3) line += '  分配均=' + Math.round(allocSegMB / allocSegSecs) + 'MB/s';
 		if (spikeTotal > 0) line += '  尖帧=' + spikeTotal + '(峰' + spikeMaxMs + 'ms)';
+		if (segFrames > 0) line += '  待均=' + r1(segWaitMs / segFrames) + 'ms 脚本均=' + r1(segScriptMs / segFrames) + 'ms 音符均=' + r1(segNoteMs / segFrames) + 'ms';
 		push('--- ' + line + ' ---');
 
+		// D3: 本段事件统计(高频事件不再逐条刷屏, 总量在这里给)
+		if (evtCounts.keys().hasNext())
+		{
+			var ev:String = '';
+			var shown:Int = 0;
+			for (k => v in evtCounts)
+			{
+				ev += k + '=' + v + ' ';
+				shown++;
+				if (shown >= 12) break;	// 只列前 12 个名字, 防日志行长失控
+			}
+			push('[事件统计] ' + ev);
+			evtCounts.clear();
+		}
+
 		segStartMs = now; segFrames = 0; segMemPeak = 0;
+		segWaitMs = 0; segScriptMs = 0; segNoteMs = 0;
 		segJudgeN = 0; segJudgeSum = 0; segJudgeMiss = 0;
 		allocSegMB = 0; allocSegSecs = 0;
 		spikeTotal = 0; spikeMaxMs = 0;		// 尖峰统计按段重置(此前跨段累计易误判)
@@ -323,6 +374,7 @@ class PerfProbe
 	{
 		if (!enabled) return;
 		var now:Float = Timer.stamp() * 1000;
+		lastPostDrawMs = now;
 		var d:Float = now - drawStartMs;
 		drawSum += d;
 		if (d > drawMax) drawMax = d;
@@ -353,6 +405,49 @@ class PerfProbe
 	public static function log(line:String):Void
 	{
 		push(line);
+	}
+
+	// ===== 脚本回调计时: PlayState 在 callOnScripts(onUpdate/onUpdatePost) 前后打点 =====
+
+	public static function addScriptMs(ms:Float):Void
+	{
+		if (!enabled || ms <= 0) return;
+		scriptSum += ms;
+		if (ms > scriptMax) scriptMax = ms;
+	}
+
+	// ===== 音符循环计时: PlayState 每帧遍历存活音符前后打点 =====
+
+	public static function addNoteMs(ms:Float):Void
+	{
+		if (!enabled || ms <= 0) return;
+		noteSum += ms;
+		if (ms > noteMax) noteMax = ms;
+	}
+
+	// ===== 事件打点: 高频事件不逐条刷日志 =====
+	// 实测曲3(重 mod)一首歌 1.4 万条事件("Camera Follow Pos" 每 ~21ms 一条), 逐条写会让日志涨到 1.5 万行/首,
+	// 且每条都要拼字符串; 规则: 每个名字前 EVT_LOG_EACH 次逐条记录(留原始时间戳做归因),
+	// 之后只往上抛"本秒聚合", 段小结时再给一次总数。
+
+	public static function eventMarker(name:String, value1:String, value2:String, strumTime:Float):Void
+	{
+		if (!enabled) return;
+		var n:Int = (evtCounts.exists(name) ? evtCounts.get(name) : 0) + 1;
+		evtCounts.set(name, n);
+		evtSecCounts.set(name, (evtSecCounts.exists(name) ? evtSecCounts.get(name) : 0) + 1);
+		if (n <= EVT_LOG_EACH)
+			push('[事件] ' + name + ' | ' + value1 + ' | ' + value2 + ' @' + Math.round(strumTime) + 'ms');
+	}
+
+	// 本秒聚合(取用即清空); 无事件返回空串, 不占日志行
+	static function eventSecLine():String
+	{
+		if (!evtSecCounts.keys().hasNext()) return '';
+		var s:String = ' 事件:';
+		for (k => v in evtSecCounts) s += k + '=' + v + ' ';
+		evtSecCounts.clear();
+		return s;
 	}
 
 	// ===== 进歌耗时分解: 各阶段相对打点(点歌时 reset, 跨状态累计毫秒) =====
