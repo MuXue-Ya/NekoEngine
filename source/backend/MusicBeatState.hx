@@ -160,6 +160,12 @@ class MusicBeatState extends FlxUIState
 	public static var timePassedOnState:Float = 0;
 	override function update(elapsed:Float)
 	{
+		// L1 引擎底层: 纹理驻留管家(内部 5s 节流) —— 空闲的大图集当场回收, 不等切状态。
+		// 依据: 曲2 打歌 rss 1.9~2.6GB, 换角色/换阶段后旧图集一直被 currentTrackedAssets 强引用。
+		#if mobile
+		var __texLog:String = Paths.texHousekeeping(haxe.Timer.stamp() * 1000);
+		if (__texLog != null && __texLog.length > 0) PerfProbe.log(__texLog);
+		#end
 		//everyStep();
 		var oldStep:Int = curStep;
 		timePassedOnState += elapsed;

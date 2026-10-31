@@ -73,6 +73,97 @@ class Paths
 		// 每次切界面都白送一次长暂停; 改由 setMinimumFreeSpace(48MB) 按需自然触发
 	}
 
+	// ===== 引擎底层(阶段 L): 纹理驻留管家(显存预算 + LRU) =====
+	// 依据(第五轮 perf_log): 曲2 打歌 rss 1.9~2.6GB, 其中 30 张 GPU 化 mod 图集是大头。
+	// 而 Paths.cacheBitmap 所有图都是 persist=true / destroyOnNoUse=false → 只能等切状态才释放;
+	// 一首 5 分钟的歌里, 换掉的角色图集 / 没再用过的舞台变体就一直白占显存。
+	// 策略(保守): ① 只看 Paths 自己记账的图 ② 只动 >=4MB ③ useCount==0(sprite 没在用, 反射读, 读不到就不动)
+	// ④ 至少 5s 没被请求 ⑤ 显存超过 texBudgetMB 才动手, 按"最久没用"顺序释放到预算以内 ⑥ 同一张图 90s 内不重复回收(防抖动)
+	public static var texLastUseMs:Map<String, Float> = new Map();
+	public static var texEvictedMs:Map<String, Float> = new Map();
+	public static var texMinMB:Float = 4;
+	public static var texIdleSec:Float = 5;				// 至少闲置这么久才允许回收
+	public static var texBudgetMB:Float = 800;			// 显存预算(超过就按 LRU 释放)
+	public static var texCooldownSec:Float = 90;		// 同一张图两次回收的最小间隔(防抖动)
+	public static var texSweptMB:Float = 0;				// 累计回收(仅日志)
+	public static var texSweepEnabled:Bool = true;
+	static var texTickMs:Float = -100000;
+
+	public static function texTouch(file:String):Void
+	{
+		texLastUseMs.set(file, haxe.Timer.stamp() * 1000);
+	}
+
+	// 返回一行日志(空串=没动作); 由 MusicBeatState.update 每帧调, 内部 5s 节流
+	public static function texHousekeeping(nowMs:Float):String
+	{
+		#if (cpp && mobile)
+		if (!texSweepEnabled) return '';
+		if (nowMs - texTickMs < 5000) return '';
+		texTickMs = nowMs;
+
+		var gpuTotalMB:Float = 0;
+		var keys:Array<String> = [];
+		@:privateAccess
+		for (k in FlxG.bitmap._cache.keys())
+		{
+			var g:FlxGraphic = FlxG.bitmap._cache.get(k);
+			if (g == null || g.bitmap == null) continue;
+			if (!g.bitmap.readable) gpuTotalMB += g.bitmap.width * g.bitmap.height * 4 / 1048576;
+			keys.push(k);
+		}
+		if (gpuTotalMB <= texBudgetMB) return '';		// 没超预算: 什么都不做(不打搅画面)
+
+		// 候选: 大图 + 有记账 + 闲置够久 + 没被 sprite 引用 + 不在冷却期, 按最近使用时间升序(最老先走)
+		var cands:Array<{k:String, mb:Float, last:Float}> = [];
+		for (k in keys)
+		{
+			var g:FlxGraphic = currentTrackedAssets.get(k);
+			if (g == null || g.bitmap == null) continue;
+			var mb:Float = g.bitmap.width * g.bitmap.height * 4 / 1048576;
+			if (mb < texMinMB) continue;
+			if (!texLastUseMs.exists(k)) continue;
+			var last:Float = texLastUseMs.get(k);
+			if (nowMs - last < texIdleSec * 1000) continue;
+			if (texEvictedMs.exists(k) && nowMs - texEvictedMs.get(k) < texCooldownSec * 1000) continue;
+			var uc:Dynamic = Reflect.getProperty(g, 'useCount');
+			if (uc == null) return '';					// 拿不到引用计数 → 这轮不回收(保守)
+			if (Std.int(uc) > 0) continue;				// 还有 sprite 在用
+			cands.push({k: k, mb: mb, last: last});
+		}
+		if (cands.length == 0) return '';
+		cands.sort(function(a, b) return (a.last < b.last) ? -1 : ((a.last > b.last) ? 1 : 0));
+
+		var freed:Int = 0;
+		var freedMB:Float = 0;
+		var total:Float = gpuTotalMB;
+		for (c in cands)
+		{
+			if (total <= texBudgetMB || freed >= 8) break;
+			var g:FlxGraphic = currentTrackedAssets.get(c.k);
+			if (g == null) continue;
+			FlxG.bitmap._cache.remove(c.k);
+			OpenFlAssets.cache.removeBitmapData(c.k);
+			currentTrackedAssets.remove(c.k);
+			texLastUseMs.remove(c.k);
+			texEvictedMs.set(c.k, nowMs);
+			g.persist = false;
+			g.destroyOnNoUse = true;
+			g.destroy();
+			freed++;
+			freedMB += c.mb;
+			total -= c.mb;
+		}
+
+		if (freed <= 0) return '';
+		texSweptMB += freedMB;
+		return '[纹理] 回收 ' + freed + ' 张/' + Math.round(freedMB) + 'MB 显存=' + Math.round(gpuTotalMB)
+			+ '→' + Math.round(total) + 'MB (预算=' + Math.round(texBudgetMB) + 'MB 累计=' + Math.round(texSweptMB) + 'MB)';
+		#else
+		return '';
+		#end
+	}
+
 	// define the locally tracked assets
 	// 改为 Map 去重: 旧 Array 每次 push 无判重, 一首歌能堆上万条重复项,
 	// 而清理侧 contains() 是线性扫 → O(资产数×条目数) 的字符串比较雪崩
@@ -303,6 +394,7 @@ class Paths
 		if (cachedAstc != null)
 		{
 			localTrackedAssets.set(fileAstc, true);
+			texTouch(fileAstc);
 			return cachedAstc;
 		}
 		else if (FileSystem.exists(fileAstc))
@@ -320,6 +412,7 @@ class Paths
 			if (cachedPng != null)
 			{
 				localTrackedAssets.set(filePng, true);
+				texTouch(filePng);
 				return cachedPng;
 			}
 			else if (FileSystem.exists(filePng))
@@ -343,6 +436,7 @@ class Paths
 			if (cachedPathAstc != null)
 			{
 				localTrackedAssets.set(pathAstc, true);
+				texTouch(pathAstc);
 				return cachedPathAstc;
 			}
 			else if (OpenFlAssets.exists(pathAstc))
@@ -358,6 +452,7 @@ class Paths
 				if (cachedPathPng != null)
 				{
 					localTrackedAssets.set(pathPng, true);
+					texTouch(pathPng);
 					return cachedPathPng;
 				}
 				else if (OpenFlAssets.exists(pathPng, IMAGE))
@@ -417,7 +512,8 @@ class Paths
 		}
 
 		localTrackedAssets.set(file, true);
-		
+		texTouch(file);		// L1: 记账"这张图刚被请求", 供空闲回收判断
+
 		var isAstc:Bool = false;
 		#if ASTC_SUPPORT
 		isAstc = StringTools.endsWith(file, '.astc');
