@@ -27,7 +27,11 @@ class PerfProbe
 	public static var enabled:Bool = true;
 
 	static var lastPreMs:Float = -1;	// 上一帧 preUpdate 时间戳
-	static var lastFrameHeap:Float = -1;	// 上一帧堆占用(尖帧归因: 堆扩块 vs GC 扫堆)
+	static var lastFrameHeap:Float = -1;	// 上一帧 CURRENT(尖帧归因: 真分配 vs GC/堆扩块)
+	static var allocUpdAcc:Float = 0;		// 本秒 更新段分配(MB)
+	static var allocDrawAcc:Float = 0;		// 本秒 绘制段分配(MB)
+	static var frameCurStart:Float = -1;	// 本帧开始时的 CURRENT
+	static var drawCurStart:Float = -1;		// 绘制开始时的 CURRENT
 	static var updStartMs:Float = 0;	// 更新段开始
 	static var drawStartMs:Float = 0;	// 绘制段开始
 	static var frameMs:Float = 0;		// 当前帧(步)总耗时
@@ -151,7 +155,8 @@ class PerfProbe
 			// 堆增量: 区分"GC 扫堆卡顿"与"堆扩块卡顿"(实测每 ~4s 一次 +32MB 的尖帧)
 			var heapTag:String = '';
 			#if cpp
-			var hNow:Float = heapMB();
+			var hNow:Float = curMBv();
+			frameCurStart = hNow;
 			if (lastFrameHeap >= 0)
 			{
 				var dh:Float = hNow - lastFrameHeap;
@@ -191,25 +196,34 @@ class PerfProbe
 			lastUpdAvg = updAvg;
 			lastDrawAvg = drawAvg;
 			var memLine:String = '';
+			var usageMB:Float = 0;
+			var allocSplit:String = '';
 			#if cpp
-			// 内存分解: 实用(真数据) / 堆总量(实用+空闲+垃圾), 差值即 GC 策略的代价
-			var usageMB:Float = Math.round(cpp.vm.Gc.memInfo64(cpp.vm.Gc.MEM_INFO_USAGE) / 104857.6) / 10;
+			// 内存分解: 存活(上次回收时的估算) / 当前占用(含未回收垃圾) / 已预留
+			// 坑: 只看 USAGE 会被"堆扩块"骗到(它不含垃圾), 分配速率必须用 CURRENT 算
+			usageMB = Math.round(cpp.vm.Gc.memInfo64(cpp.vm.Gc.MEM_INFO_USAGE) / 104857.6) / 10;
+			var curNow:Float = Math.round(cpp.vm.Gc.memInfo64(cpp.vm.Gc.MEM_INFO_CURRENT) / 104857.6) / 10;
 			var rsvMB:Float = Math.round(cpp.vm.Gc.memInfo64(cpp.vm.Gc.MEM_INFO_RESERVED) / 104857.6) / 10;
-			memLine = ' mem=' + usageMB + '/' + rsvMB + 'MB';
-			// 分配速率: (GC回收 + 堆净增量)/时长 —— 尖帧归因的关键曲线
+			memLine = ' mem=' + usageMB + '/' + curNow + '/' + rsvMB + 'MB';
+			// 分配速率: (GC回收 + 净增量)/时长 —— 用 CURRENT(含垃圾)才是真实分配量
 			if (lastAllocUsageMB >= 0)
 			{
 				var dt:Float = (now - lastAllocMs) / 1000;
 				if (dt > 0.2)
 				{
-					var allocMB:Float = gcFreedAccumMB + (usageMB - lastAllocUsageMB);
+					var allocMB:Float = gcFreedAccumMB + (curNow - lastAllocUsageMB);
 					if (allocMB < 0) allocMB = 0;
 					memLine += ' 分配=' + Math.round(allocMB / dt) + 'MB/s';
 					allocSegMB += allocMB;
 					allocSegSecs += dt;
 				}
 			}
-			lastAllocUsageMB = usageMB; lastAllocMs = now; gcFreedAccumMB = 0;
+			lastAllocUsageMB = curNow; lastAllocMs = now; gcFreedAccumMB = 0;
+			// 分配落在哪一段: 更新(游戏逻辑/脚本) vs 绘制(引擎/渲染) —— 找出 10MB/s 的源头
+			if (allocUpdAcc + allocDrawAcc > 0.01)
+				allocSplit = ' 分帧:更新=' + r1(allocUpdAcc / sec) + ' 绘制=' + r1(allocDrawAcc / sec);
+			allocUpdAcc = 0;
+			allocDrawAcc = 0;
 			#end
 			// 判定直方图(本秒玩家击中偏差分布)
 			var judgeLine:String = '';
@@ -227,7 +241,7 @@ class PerfProbe
 				+ '  fps=' + Math.round(secFrames / sec)
 				+ '  upd=' + r1(updAvg) + 'ms(峰' + r1(updMax) + ')'
 				+ '  draw=' + r1(drawAvg) + 'ms(峰' + r1(drawMax) + ')'
-				+ '  GC=' + gcSec + memLine + allocLine() + driftLine() + judgeLine);
+				+ '  GC=' + gcSec + memLine + allocSplit + allocLine() + driftLine() + judgeLine);
 
 			// 段级累加(清零前)
 			segFrames += secFrames;
@@ -287,12 +301,22 @@ class PerfProbe
 		var d:Float = now - updStartMs;
 		updSum += d;
 		if (d > updMax) updMax = d;
+		#if cpp
+		if (frameCurStart >= 0)
+		{
+			var cEnd:Float = curMBv();
+			if (cEnd > frameCurStart) allocUpdAcc += cEnd - frameCurStart;
+		}
+		#end
 	}
 
 	public static function onPreDraw():Void
 	{
 		if (!enabled) return;
 		drawStartMs = Timer.stamp() * 1000;
+		#if cpp
+		drawCurStart = curMBv();
+		#end
 	}
 
 	public static function onPostDraw():Void
@@ -302,6 +326,13 @@ class PerfProbe
 		var d:Float = now - drawStartMs;
 		drawSum += d;
 		if (d > drawMax) drawMax = d;
+		#if cpp
+		if (drawCurStart >= 0)
+		{
+			var cEnd:Float = curMBv();
+			if (cEnd > drawCurStart) allocDrawAcc += cEnd - drawCurStart;
+		}
+		#end
 	}
 
 	// ===== GC 事件(FPSCounter 检测到堆内存显著下降时回调) =====
@@ -352,8 +383,13 @@ class PerfProbe
 	#if cpp
 	public static inline function heapMB():Float
 		return cpp.vm.Gc.memInfo64(cpp.vm.Gc.MEM_INFO_USAGE) / 1048576.0;
+
+	// CURRENT = 当前实际占用(含未回收垃圾), 只有它能反映真实分配量
+	public static inline function curMBv():Float
+		return cpp.vm.Gc.memInfo64(cpp.vm.Gc.MEM_INFO_CURRENT) / 1048576.0;
 	#else
 	public static inline function heapMB():Float return 0;
+	public static inline function curMBv():Float return 0;
 	#end
 
 	public static inline function addAlloc(label:String, h0:Float):Void

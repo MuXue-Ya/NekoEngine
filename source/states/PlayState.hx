@@ -2041,6 +2041,8 @@ class PlayState extends MusicBeatState
 					if (vocals != null && vocals.length > 0)
 					{
 						var vDiff:Float = vocals.time - audioPos;
+						// 大跳(歌曲结束 music.time 归零/seek)不是漂移, 硬修会把结尾人声拽没
+						if (Math.abs(vDiff) > 3000) vDiff = 0;
 						if (Math.abs(vDiff) > vTol)
 						{
 							vocals.time = audioPos;
@@ -2051,7 +2053,7 @@ class PlayState extends MusicBeatState
 					if (opponentVocals != null && opponentVocals.length > 0)
 					{
 						var oDiff:Float = opponentVocals.time - audioPos;
-						if (Math.abs(oDiff) > vTol) opponentVocals.time = audioPos;
+						if (Math.abs(oDiff) > vTol && Math.abs(oDiff) < 3000) opponentVocals.time = audioPos;
 					}
 				}
 			}
