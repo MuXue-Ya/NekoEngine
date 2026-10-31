@@ -50,6 +50,10 @@ class PerfProbe
 	static var lastPostDrawMs:Float = -1;
 	static var waitSum:Float = 0;
 	static var waitMax:Float = 0;
+	// 逐帧拆解(上一帧的 upd/draw), 供尖帧行直接写出"这一帧卡在哪一段"
+	static var lastUpdMs:Float = 0;
+	static var lastDrawMs:Float = 0;
+	static var waitFrameMs:Float = 0;
 	// D2: 脚本回调(Lua/HScript onUpdate+onUpdatePost)耗时 —— 曲3 update 8ms 里到底有多少是 mod 脚本
 	static var scriptSum:Float = 0;
 	static var scriptMax:Float = 0;
@@ -173,10 +177,11 @@ class PerfProbe
 		{
 			frameMs = now - lastPreMs;
 			// 待: 上一帧 postDraw 之后的空档(不含脚本/引擎逻辑)
+			waitFrameMs = 0;
 			if (lastPostDrawMs > 0)
 			{
-				var wms:Float = now - lastPostDrawMs;
-				if (wms > 0 && wms < 5000) { waitSum += wms; if (wms > waitMax) waitMax = wms; }
+				waitFrameMs = now - lastPostDrawMs;
+				if (waitFrameMs > 0 && waitFrameMs < 5000) { waitSum += waitFrameMs; if (waitFrameMs > waitMax) waitMax = waitFrameMs; }
 			}
 			lastPostDrawMs = -1;
 			// 堆增量: 区分"GC 扫堆卡顿"与"堆扩块卡顿"(实测每 ~4s 一次 +32MB 的尖帧)
@@ -193,7 +198,9 @@ class PerfProbe
 			#end
 			if (frameMs > 40 && frameMs < 5000 && spikeSec < 10)
 			{
-				push('[' + fmt(now) + '] ⚡尖帧 ' + Math.round(frameMs) + 'ms @' + shortState(curStateName()) + heapTag);
+				// 逐帧归因: frameMs = 上一帧 upd + draw + 待, 三者谁大就是谁卡的(不再靠事后统计猜)
+				push('[' + fmt(now) + '] ⚡尖帧 ' + Math.round(frameMs) + 'ms @' + shortState(curStateName()) + heapTag
+					+ ' 帧内:upd=' + r1(lastUpdMs) + ' draw=' + r1(lastDrawMs) + ' 待=' + r1(waitFrameMs));
 				spikeSec++;
 				spikeTotal++;
 				if (Math.round(frameMs) > spikeMaxMs) spikeMaxMs = Math.round(frameMs);
@@ -350,6 +357,7 @@ class PerfProbe
 		if (!enabled) return;
 		var now:Float = Timer.stamp() * 1000;
 		var d:Float = now - updStartMs;
+		lastUpdMs = d;
 		updSum += d;
 		if (d > updMax) updMax = d;
 		#if cpp
@@ -376,6 +384,7 @@ class PerfProbe
 		var now:Float = Timer.stamp() * 1000;
 		lastPostDrawMs = now;
 		var d:Float = now - drawStartMs;
+		lastDrawMs = d;
 		drawSum += d;
 		if (d > drawMax) drawMax = d;
 		#if cpp
@@ -593,6 +602,17 @@ class PerfProbe
 		var bigTex:Array<{n:String, mb:Float}> = [];
 		var astcCnt:Int = 0;
 		var gpuCnt:Int = 0;
+		// 显存侧估算: GPU 化纹理(README: 数据在 GL, 不进 hxcpp 堆)照样占 rss,
+		// 曲2 实测 rss 1.9~2.6GB 而堆只有 300MB —— 这部分必须单独算, 否则"堆外"永远是个黑盒
+		var gpuMB:Float = 0;
+		var gpuBig:Array<{n:String, mb:Float}> = [];
+		var shortKey = function(k:String):String
+		{
+			var s2:String = k;
+			var sl:Int = s2.lastIndexOf('/');
+			if (sl >= 0) s2 = s2.substr(sl + 1);
+			return s2;
+		};
 		@:privateAccess
 		for (key in FlxG.bitmap._cache.keys())
 		{
@@ -601,7 +621,14 @@ class PerfProbe
 			#if ASTC_SUPPORT
 			if (Std.isOfType(g.bitmap, backend.astcsupport.openfl.display.ASTCBitmapData)) { astcCnt++; continue; }
 			#end
-			if (!g.bitmap.readable) { gpuCnt++; continue; }	// GPU化纹理: 数据在GL, 零堆占用
+			if (!g.bitmap.readable)	// GPU化纹理: 数据在GL, 零堆占用 —— 但显存照样进 rss
+			{
+				gpuCnt++;
+				var gmb:Float = g.bitmap.width * g.bitmap.height * 4 / 1048576;
+				gpuMB += gmb;
+				if (gmb >= 8) gpuBig.push({n: shortKey(key), mb: gmb});
+				continue;
+			}
 			texCnt++;
 			var oneMB:Float = g.bitmap.width * g.bitmap.height * 4 / 1048576;
 			texMB += oneMB;
@@ -619,6 +646,12 @@ class PerfProbe
 		var bigN:Int = bigTex.length < 5 ? bigTex.length : 5;
 		for (i in 0...bigN) bigLine += ' ' + bigTex[i].n + '=' + Math.round(bigTex[i].mb) + 'MB';
 		bigTex.resize(0);
+		// 显存侧 Top5(>=8MB): 曲2 那 1.5~2.2GB 堆外到底是哪几张图撑起来的
+		gpuBig.sort(function(a, b) return (a.mb > b.mb) ? -1 : ((a.mb < b.mb) ? 1 : 0));
+		var gpuLine:String = '';
+		var gpuN:Int = gpuBig.length < 5 ? gpuBig.length : 5;
+		for (i in 0...gpuN) gpuLine += ' ' + gpuBig[i].n + '=' + Math.round(gpuBig[i].mb) + 'MB';
+		gpuBig.resize(0);
 		var rssMB:Float = readRssMB();
 		// 音频 PCM 驻留估算: lime Android 解码为 44.1kHz/16bit/立体声 = 176.4 B/ms = 0.00016822 MB/ms
 		var audioCnt:Int = 0;
@@ -639,15 +672,18 @@ class PerfProbe
 				}
 			}
 		}
+		var outsideMB:Float = rssMB - cpp.vm.Gc.memInfo64(cpp.vm.Gc.MEM_INFO_RESERVED) / 1048576.0;
 		push('[' + fmt(nowMs) + '] 内存分解 堆内贴图=' + texCnt + '张/' + Math.round(texMB)
-			+ 'MB GPU化=' + gpuCnt + ' ASTC=' + astcCnt
+			+ 'MB GPU化=' + gpuCnt + '张/~' + Math.round(gpuMB) + 'MB ASTC=' + astcCnt
 			+ ' 跟踪图=' + Lambda.count(Paths.currentTrackedAssets)
 			+ ' 跟踪音=' + Lambda.count(Paths.currentTrackedSounds)
 			+ ' 音频=' + audioCnt + '轨/~' + Math.round(audioMB) + 'MB'
 			+ ' 曲=' + (states.PlayState.SONG != null ? states.PlayState.SONG.song : '-')
 			+ ' rss=' + Math.round(rssMB) + 'MB'
-			+ ' 堆外=' + Math.round(rssMB - cpp.vm.Gc.memInfo64(cpp.vm.Gc.MEM_INFO_RESERVED) / 1048576.0) + 'MB'
-			+ ' 大图:' + (bigLine.length > 0 ? bigLine : ' 无'));
+			+ ' 堆外=' + Math.round(outsideMB) + 'MB(显存≈' + Math.round(gpuMB) + ' 音≈' + Math.round(audioMB)
+			+ ' 其他≈' + Math.round(outsideMB - gpuMB - audioMB) + ')'
+			+ ' 大图:' + (bigLine.length > 0 ? bigLine : ' 无')
+			+ ' 显存大图:' + (gpuLine.length > 0 ? gpuLine : ' 无'));
 		var ps:states.PlayState = states.PlayState.instance;
 		if (ps != null)
 		{
