@@ -27,6 +27,7 @@ class PerfProbe
 	public static var enabled:Bool = true;
 
 	static var lastPreMs:Float = -1;	// 上一帧 preUpdate 时间戳
+	static var lastFrameHeap:Float = -1;	// 上一帧堆占用(尖帧归因: 堆扩块 vs GC 扫堆)
 	static var updStartMs:Float = 0;	// 更新段开始
 	static var drawStartMs:Float = 0;	// 绘制段开始
 	static var frameMs:Float = 0;		// 当前帧(步)总耗时
@@ -147,9 +148,20 @@ class PerfProbe
 		if (lastPreMs > 0)
 		{
 			frameMs = now - lastPreMs;
+			// 堆增量: 区分"GC 扫堆卡顿"与"堆扩块卡顿"(实测每 ~4s 一次 +32MB 的尖帧)
+			var heapTag:String = '';
+			#if cpp
+			var hNow:Float = heapMB();
+			if (lastFrameHeap >= 0)
+			{
+				var dh:Float = hNow - lastFrameHeap;
+				if (dh > 2 || dh < -2) heapTag = ' 堆' + (dh > 0 ? '+' : '') + r1(dh) + 'MB';
+			}
+			lastFrameHeap = hNow;
+			#end
 			if (frameMs > 40 && frameMs < 5000 && spikeSec < 10)
 			{
-				push('[' + fmt(now) + '] ⚡尖帧 ' + Math.round(frameMs) + 'ms @' + shortState(curStateName()));
+				push('[' + fmt(now) + '] ⚡尖帧 ' + Math.round(frameMs) + 'ms @' + shortState(curStateName()) + heapTag);
 				spikeSec++;
 				spikeTotal++;
 				if (Math.round(frameMs) > spikeMaxMs) spikeMaxMs = Math.round(frameMs);

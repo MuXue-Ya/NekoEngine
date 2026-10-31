@@ -764,6 +764,12 @@ class PlayState extends MusicBeatState
 
 		super.create();
 		Paths.clearUnusedMemory();
+		#if cpp
+		// 进歌前把 create 阶段产生的临时垃圾清掉: 实测打歌开始 ~2s 时会来一次 422ms 的全量 GC
+		// (perf_log: 40.5s GC -142.8MB 帧耗时=422ms), 正好卡在歌曲开头最要命的位置。
+		// 这里在倒计时/开唱前主动收一次, 把这 400ms 放进加载阶段(此时本来就在黑屏过渡)。
+		openfl.system.System.gc();
+		#end
 		backend.PerfProbe.loadMark('create 完成(含贴图缓存)');
 
 		if(eventNotes.length < 1) checkEventNote();
@@ -2021,6 +2027,33 @@ class PlayState extends MusicBeatState
 					Conductor.songPosition = audioPos;
 				else
 					Conductor.songPosition += clockDiff * 0.15;	// 软收敛, 时间常数约 0.1s
+
+				// 人声跟随: 三条音轨是依次 play() 的, 起播后实测人声会稳定领先 36ms
+				// (perf_log: v=+36ms 从 34s 一直持续到 53s), 而 stepHit 的重同步判据是 120ms,
+				// 太小修不到、太大又会打断人声流。这里每 0.5s 只比 vocals 与 music, 偏差超过 35ms 才 seek 一次。
+				vocalsFollowTimer += FlxG.elapsed;
+				if (vocalsFollowTimer >= 0.5)
+				{
+					vocalsFollowTimer = 0;
+					if (vocals != null && vocals.length > 0)
+					{
+						var vDiff:Float = vocals.time - audioPos;
+						if (Math.abs(vDiff) > VOCALS_FOLLOW_TOL)
+						{
+							vocals.time = audioPos;
+							if (vocalsFixCount < 8)
+							{
+								vocalsFixCount++;
+								backend.PerfProbe.log('[音画] 人声跟随 修正=' + Math.round(vDiff) + 'ms');
+							}
+						}
+					}
+					if (opponentVocals != null && opponentVocals.length > 0)
+					{
+						var oDiff:Float = opponentVocals.time - audioPos;
+						if (Math.abs(oDiff) > VOCALS_FOLLOW_TOL) opponentVocals.time = audioPos;
+					}
+				}
 			}
 		}
 
@@ -3809,6 +3842,9 @@ class PlayState extends MusicBeatState
 
 	var lastStepHit:Int = -1;
 	var resyncCount:Int = 0;	// 诊断: resync 次数写入 perf_log, 用来验证"人声卡"是否消失
+	var vocalsFollowTimer:Float = 0;						// 人声跟随: 检查间隔计时
+	var vocalsFixCount:Int = 0;								// 诊断: 修正次数(只写前 8 次日志)
+	static inline var VOCALS_FOLLOW_TOL:Float = 35;			// 人声与伴奏偏差超过 35ms 才 seek
 	override function stepHit()
 	{
 		if (SONG.needsVoices && FlxG.sound.music.time >= -ClientPrefs.data.noteOffset)
