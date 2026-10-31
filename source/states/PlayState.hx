@@ -2029,29 +2029,29 @@ class PlayState extends MusicBeatState
 					Conductor.songPosition += clockDiff * 0.15;	// 软收敛, 时间常数约 0.1s
 
 				// 人声跟随: 三条音轨是依次 play() 的, 起播后实测人声会稳定领先 36ms
-				// (perf_log: v=+36ms 从 34s 一直持续到 53s), 而 stepHit 的重同步判据是 120ms,
-				// 太小修不到、太大又会打断人声流。这里每 0.5s 只比 vocals 与 music, 偏差超过 35ms 才 seek 一次。
+				// (perf_log: v=+36ms 从 34s 一直持续到 53s), 而 stepHit 的重同步判据是 120ms, 根本修不到。
+				// 起播 10s 内按 35ms 判据修(起播偏差是常数), 之后只修 >70ms 的明显错位,
+				// 并限制总修正次数 + 冷却, 避免后端 position 回报滞后时反复 seek 打断人声。
 				vocalsFollowTimer += FlxG.elapsed;
-				if (vocalsFollowTimer >= 0.5)
+				var vTol:Float = (Conductor.songPosition < 10000) ? VOCALS_FOLLOW_TOL : 70;
+				var vCooldown:Float = (Conductor.songPosition < 10000) ? 0.5 : 2.0;
+				if (vocalsFollowTimer >= vCooldown && vocalsFixCount < 16)
 				{
 					vocalsFollowTimer = 0;
 					if (vocals != null && vocals.length > 0)
 					{
 						var vDiff:Float = vocals.time - audioPos;
-						if (Math.abs(vDiff) > VOCALS_FOLLOW_TOL)
+						if (Math.abs(vDiff) > vTol)
 						{
 							vocals.time = audioPos;
-							if (vocalsFixCount < 8)
-							{
-								vocalsFixCount++;
-								backend.PerfProbe.log('[音画] 人声跟随 修正=' + Math.round(vDiff) + 'ms');
-							}
+							vocalsFixCount++;
+							if (vocalsFixCount <= 8) backend.PerfProbe.log('[音画] 人声跟随 修正=' + Math.round(vDiff) + 'ms');
 						}
 					}
 					if (opponentVocals != null && opponentVocals.length > 0)
 					{
 						var oDiff:Float = opponentVocals.time - audioPos;
-						if (Math.abs(oDiff) > VOCALS_FOLLOW_TOL) opponentVocals.time = audioPos;
+						if (Math.abs(oDiff) > vTol) opponentVocals.time = audioPos;
 					}
 				}
 			}
@@ -3843,7 +3843,7 @@ class PlayState extends MusicBeatState
 	var lastStepHit:Int = -1;
 	var resyncCount:Int = 0;	// 诊断: resync 次数写入 perf_log, 用来验证"人声卡"是否消失
 	var vocalsFollowTimer:Float = 0;						// 人声跟随: 检查间隔计时
-	var vocalsFixCount:Int = 0;								// 诊断: 修正次数(只写前 8 次日志)
+	var vocalsFixCount:Int = 0;								// 修正次数(上限 16, 只写前 8 次日志)
 	static inline var VOCALS_FOLLOW_TOL:Float = 35;			// 人声与伴奏偏差超过 35ms 才 seek
 	override function stepHit()
 	{
