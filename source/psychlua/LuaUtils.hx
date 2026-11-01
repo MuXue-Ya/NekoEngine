@@ -39,9 +39,34 @@ class LuaUtils
 		};
 	}
 
+	// ===== 属性路径缓存(阶段 Q) =====
+	// modchart 每帧会跑几十上百次 setProperty/getProperty, 每次都要 variable.split('.') / split('[') ——
+	// 这两个 split 会为每次调用分配一个数组 + 若干子串, 在 Inexorable 这种相机脚本里
+	// (脚本均 2.96ms/帧) 是主要的小对象来源之一。路径字符串是有限的, 拆分结果也不变, 直接缓存。
+	static var dotSplitCache:Map<String, Array<String>> = new Map();
+	static var brSplitCache:Map<String, Array<String>> = new Map();
+
+	static function splitDots(v:String):Array<String>
+	{
+		var hit:Array<String> = dotSplitCache.get(v);
+		if (hit != null) return hit;
+		hit = v.split('.');
+		dotSplitCache.set(v, hit);
+		return hit;
+	}
+
+	static function splitBrackets(v:String):Array<String>
+	{
+		var hit:Array<String> = brSplitCache.get(v);
+		if (hit != null) return hit;
+		hit = v.split('[');
+		brSplitCache.set(v, hit);
+		return hit;
+	}
+
 	public static function setVarInArray(instance:Dynamic, variable:String, value:Dynamic, allowMaps:Bool = false):Any
 	{
-		var splitProps:Array<String> = variable.split('[');
+		var splitProps:Array<String> = splitBrackets(variable);
 		if(splitProps.length > 1)
 		{
 			var target:Dynamic = null;
@@ -81,7 +106,7 @@ class LuaUtils
 	}
 	public static function getVarInArray(instance:Dynamic, variable:String, allowMaps:Bool = false):Any
 	{
-		var splitProps:Array<String> = variable.split('[');
+		var splitProps:Array<String> = splitBrackets(variable);
 		if(splitProps.length > 1)
 		{
 			var target:Dynamic = null;
@@ -203,7 +228,7 @@ class LuaUtils
 	}
 
 	public static function setGroupStuff(leArray:Dynamic, variable:String, value:Dynamic, ?allowMaps:Bool = false) {
-		var split:Array<String> = variable.split('.');
+		var split:Array<String> = splitDots(variable);
 		if(split.length > 1) {
 			var obj:Dynamic = Reflect.getProperty(leArray, split[0]);
 			for (i in 1...split.length-1)
@@ -217,7 +242,7 @@ class LuaUtils
 		return value;
 	}
 	public static function getGroupStuff(leArray:Dynamic, variable:String, ?allowMaps:Bool = false) {
-		var split:Array<String> = variable.split('.');
+		var split:Array<String> = splitDots(variable);
 		if(split.length > 1) {
 			var obj:Dynamic = Reflect.getProperty(leArray, split[0]);
 			for (i in 1...split.length-1)
@@ -381,7 +406,7 @@ class LuaUtils
 
 	public static function tweenPrepare(tag:String, vars:String) {
 		cancelTween(tag);
-		var variables:Array<String> = vars.split('.');
+		var variables:Array<String> = splitDots(vars);
 		var sexyProp:Dynamic = LuaUtils.getObjectDirectly(variables[0]);
 		if(variables.length > 1) sexyProp = LuaUtils.getVarInArray(LuaUtils.getPropertyLoop(variables), variables[variables.length-1]);
 		return sexyProp;
