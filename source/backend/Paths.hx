@@ -89,6 +89,8 @@ class Paths
 	public static var texSweptMB:Float = 0;				// 累计回收(仅日志)
 	public static var texSweepEnabled:Bool = true;
 	static var texTickMs:Float = -100000;
+	static var giantWarned:Map<String, Bool> = new Map();	// 巨图告警去重(每张只提一次)
+	static var giantSeen:Map<String, Int> = new Map();		// 巨图连续观测次数(>=2 才敢释放, 防止"刚建好还没被引用"时误杀)
 
 	public static function texTouch(file:String):Void
 	{
@@ -113,7 +115,46 @@ class Paths
 			if (!g.bitmap.readable) gpuTotalMB += g.bitmap.width * g.bitmap.height * 4 / 1048576;
 			keys.push(k);
 		}
-		if (gpuTotalMB <= texBudgetMB) return '';		// 没超预算: 什么都不做(不打搅画面)
+		// ===== 病态巨图闸门(阶段 P) =====
+		// 起因: 第七轮日志里 mod 造了一张 25600x14400 的"野位图"(1406MB, 不是经 Paths 加载的),
+		// 直接把 hxcpp 堆顶到 1.6GB、rss 1.86GB, 打歌掉到 12~20fps。
+		// 规则: 只看"不是 Paths 记账"的野位图(正常美术一律不碰), >=128MB 才管:
+		//   没有 sprite 引用 -> 直接释放; 还有引用 -> 只告警一次(让作者去降采样)。
+		var giantLog:String = '';
+		@:privateAccess
+		for (k in keys)
+		{
+			if (currentTrackedAssets.exists(k)) continue;
+			var g:FlxGraphic = FlxG.bitmap._cache.get(k);
+			if (g == null || g.bitmap == null) continue;
+			var gw:Int = g.bitmap.width;
+			var gh:Int = g.bitmap.height;
+			var gmb:Float = gw * gh * 4 / 1048576;
+			if (gmb < 128) continue;
+			var guc:Dynamic = Reflect.getProperty(g, 'useCount');
+			if (guc == null) continue;
+			var seen:Int = (giantSeen.exists(k) ? giantSeen.get(k) : 0) + 1;
+			giantSeen.set(k, seen);
+			if (Std.int(guc) > 0)
+			{
+				if (!giantWarned.exists(k))
+				{
+					giantWarned.set(k, true);
+					giantLog += '[巨图] ' + gw + 'x' + gh + '=' + Math.round(gmb) + 'MB 仍被 ' + Std.int(guc) + ' 个 sprite 引用(建议作者降采样) ';
+				}
+				continue;
+			}
+			if (seen < 2) continue;						// 只见过一次(可能刚建好/还没挂到 sprite 上) -> 下轮再看
+			FlxG.bitmap._cache.remove(k);
+			OpenFlAssets.cache.removeBitmapData(k);
+			giantSeen.remove(k);
+			g.persist = false;
+			g.destroyOnNoUse = true;
+			g.destroy();
+			giantLog += '[巨图] 释放 ' + gw + 'x' + gh + '(约' + Math.round(gmb) + 'MB, 无引用) ';
+		}
+
+		if (gpuTotalMB <= texBudgetMB) return giantLog;		// 没超预算: 只回巨图那一行
 
 		// 候选: 大图 + 有记账 + 闲置够久 + 没被 sprite 引用 + 不在冷却期, 按最近使用时间升序(最老先走)
 		var cands:Array<{k:String, mb:Float, last:Float}> = [];
@@ -128,11 +169,11 @@ class Paths
 			if (nowMs - last < texIdleSec * 1000) continue;
 			if (texEvictedMs.exists(k) && nowMs - texEvictedMs.get(k) < texCooldownSec * 1000) continue;
 			var uc:Dynamic = Reflect.getProperty(g, 'useCount');
-			if (uc == null) return '';					// 拿不到引用计数 → 这轮不回收(保守)
+			if (uc == null) return giantLog;			// 拿不到引用计数 → 这轮不回收(保守)
 			if (Std.int(uc) > 0) continue;				// 还有 sprite 在用
 			cands.push({k: k, mb: mb, last: last});
 		}
-		if (cands.length == 0) return '';
+		if (cands.length == 0) return giantLog;
 		cands.sort(function(a, b) return (a.last < b.last) ? -1 : ((a.last > b.last) ? 1 : 0));
 
 		var freed:Int = 0;
@@ -159,9 +200,9 @@ class Paths
 			total -= c.mb;
 		}
 
-		if (freed <= 0) return '';
+		if (freed <= 0) return giantLog;
 		texSweptMB += freedMB;
-		return '[纹理] 回收 ' + freed + ' 张/' + Math.round(freedMB) + 'MB 显存=' + Math.round(gpuTotalMB)
+		return (giantLog.length > 0 ? giantLog + ' ' : '') + '[纹理] 回收 ' + freed + ' 张/' + Math.round(freedMB) + 'MB 显存=' + Math.round(gpuTotalMB)
 			+ '→' + Math.round(total) + 'MB (预算=' + Math.round(texBudgetMB) + 'MB 累计=' + Math.round(texSweptMB) + 'MB)';
 		#else
 		return '';
