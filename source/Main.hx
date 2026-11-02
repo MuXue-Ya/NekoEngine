@@ -60,9 +60,14 @@ class Main extends Sprite
 		// 拉大余量换平滑: 预计 GC 频率降 5-10x; 代价=堆多占 100-300MB(5GB 机器可承受)
 		// 第二轮(实测 perf_log): 打歌时堆 400-570MB、每 ~15s 一次回收 130-160MB、单次停顿 60-90ms(音频同时静音)。
 		// 抬到 96MB 后回收间隔约翻倍(每次仍 ~60-90ms, 但次数减半) → 每分钟总停顿明显下降。
+		// 第七轮(实测 perf_log, 61fps 基线): 打歌中仍有两类内存停顿 ——
+		//   ① 进歌头 2 秒 "堆+103.7MB" 那帧 待=84ms(连带后面两帧 80/90ms), 就是现扩堆;
+		//   ② 每 ~20s 一次 12~17ms 的小回收。
+		// 把空闲余量再抬一档, 让堆在【加载屏】里就长到位, 打歌中不再现扩; 同时回收次数再降一半。
+		// 代价: 预留多占 ~64MB(曲2 实测堆 345MB → 预留约 505MB, 5GB 机器可承受)。
 		#if cpp
-		cpp.vm.Gc.setMinimumFreeSpace(96 * 1024 * 1024);	// 空闲低于 96MB 才触发 GC/扩堆(原 48)
-		cpp.vm.Gc.setTargetFreeSpacePercentage(40);			// 扩堆时让空闲占堆 40%, 少扩几次
+		cpp.vm.Gc.setMinimumFreeSpace(160 * 1024 * 1024);	// 96 → 160MB: 空闲低于此值才 GC/扩堆
+		cpp.vm.Gc.setTargetFreeSpacePercentage(50);			// 40 → 50%: 每次扩得更整, 扩的次数更少
 		#end
 
         #if mobile

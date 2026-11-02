@@ -768,7 +768,13 @@ class PlayState extends MusicBeatState
 		// 进歌前把 create 阶段产生的临时垃圾清掉: 实测打歌开始 ~2s 时会来一次 422ms 的全量 GC
 		// (perf_log: 40.5s GC -142.8MB 帧耗时=422ms), 正好卡在歌曲开头最要命的位置。
 		// 这里在倒计时/开唱前主动收一次, 把这 400ms 放进加载阶段(此时本来就在黑屏过渡)。
+		// 第八轮补充: Main 里把 minimumFreeSpace 抬到 160MB 之后, 这次回收会顺带让堆在加载屏里就长到位
+		// (打歌中再出现 "堆+103.7MB / 待=84ms" 那种现扩堆就说明没长够), 所以这里顺便把预留值打出来。
+		var __rsv0:Float = cpp.vm.Gc.memInfo64(cpp.vm.Gc.MEM_INFO_RESERVED) / 1048576;
 		openfl.system.System.gc();
+		var __rsv1:Float = cpp.vm.Gc.memInfo64(cpp.vm.Gc.MEM_INFO_RESERVED) / 1048576;
+		backend.PerfProbe.log('[堆] 进歌回收 预留=' + Math.round(__rsv0) + '→' + Math.round(__rsv1)
+			+ 'MB 当前=' + Math.round(cpp.vm.Gc.memInfo64(cpp.vm.Gc.MEM_INFO_CURRENT) / 1048576) + 'MB');
 		#end
 		backend.PerfProbe.loadMark('create 完成(含贴图缓存)');
 
